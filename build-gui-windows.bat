@@ -19,9 +19,8 @@ echo.
 echo [1/1] 编译 Windows GUI 版本...
 set GOOS=windows
 set GOARCH=amd64
-set CGO_ENABLED=1
-REM 使用 -H=windowsgui 隐藏命令行窗口
-go build -ldflags="-s -w -H=windowsgui" -o "%RELEASE_PATH%\filemanager-gui.exe" filemanager-gui.go
+REM Fyne 需要启用 CGO，但使用简化的编译参数
+go build -ldflags="-s -w" -o "%RELEASE_PATH%\filemanager-gui.exe" filemanager-gui.go
 
 if %errorlevel% equ 0 (
     set WINDOWS_GUI_SUCCESS=1
@@ -58,16 +57,13 @@ echo ==================================================
 echo 注意事项
 echo ==================================================
 echo - 关闭窗口即可退出程序
-echo - 可能需要安装 WebView2 运行时
 echo - 首次运行可能需要允许防火墙访问
 echo.
 echo ==================================================
 echo 系统要求
 echo ==================================================
 echo - Windows 10/11 64位
-echo - WebView2 运行时 Windows 11 已内置
-echo - 如果无法运行，请访问以下链接下载 WebView2
-echo   https://developer.microsoft.com/microsoft-edge/webview2/
+echo - 使用 Fyne GUI 框架，无需额外安装组件
 ) > "%RELEASE_PATH%\使用说明.txt"
 
 REM 显示构建结果
