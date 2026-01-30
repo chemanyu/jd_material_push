@@ -2,13 +2,17 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"path/filepath"
 	"time"
 
 	"jd_material_push/internal/config"
+	"jd_material_push/internal/folder"
 	"jd_material_push/internal/handler"
 	"jd_material_push/internal/svc"
 
@@ -24,6 +28,14 @@ var staticFiles embed.FS
 var configContent []byte
 
 var configFile = flag.String("f", "etc/filemanager-api.yaml", "the config file")
+
+type FileInfo struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Size    int64  `json:"size"`
+	IsDir   bool   `json:"isDir"`
+	ModTime string `json:"modTime"`
+}
 
 func main() {
 	flag.Parse()
@@ -69,16 +81,70 @@ func main() {
 		AutoFocus: true,
 		WindowOptions: webview2.WindowOptions{
 			Title:  "文件管理器",
-			Width:  1000,
-			Height: 700,
-			IconId: 2,
+			Width:  uint(1000),
+			Height: uint(700),
+			IconId: uint(2),
 		},
 	})
 	defer w.Destroy()
+
+	// 绑定文件夹选择函数
+	w.Bind("selectFolder", func() string {
+		// 使用 Windows 原生文件夹选择对话框
+		selectedPath, err := folder.SelectFolder()
+		if err != nil {
+			log.Printf("文件夹选择失败: %v", err)
+			return "{\"error\": \"" + err.Error() + "\"}"
+		}
+
+		if selectedPath == "" {
+			// 用户取消选择
+			return "{\"cancelled\": true}"
+		}
+
+		// 扫描文件夹并返回文件列表
+		files := scanFolder(selectedPath)
+		result := map[string]interface{}{
+			"path":  selectedPath,
+			"files": files,
+		}
+		jsonData, _ := json.Marshal(result)
+		return string(jsonData)
+	})
 
 	w.Navigate(url)
 	w.Run()
 
 	// 窗口关闭后停止服务器
 	server.Stop()
+}
+
+// scanFolder 扫描文件夹并返回文件信息
+func scanFolder(folderPath string) []FileInfo {
+	var files []FileInfo
+
+	entries, err := os.ReadDir(folderPath)
+	if err != nil {
+		log.Printf("读取文件夹失败: %v", err)
+		return files
+	}
+
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		fullPath := filepath.Join(folderPath, entry.Name())
+		fileData := FileInfo{
+			Name:    entry.Name(),
+			Path:    fullPath,
+			Size:    info.Size(),
+			IsDir:   entry.IsDir(),
+			ModTime: info.ModTime().Format(time.RFC3339),
+		}
+		files = append(files, fileData)
+	}
+
+	return files
 }

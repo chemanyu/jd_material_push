@@ -37,24 +37,11 @@
             font-size: 28px;
         }
         
-        .input-group {
+        .action-bar {
             display: flex;
             gap: 10px;
             margin-bottom: 25px;
-        }
-        
-        input[type="text"] {
-            flex: 1;
-            padding: 12px 15px;
-            border: 2px solid #e0e0e0;
-            border-radius: 6px;
-            font-size: 14px;
-            transition: border-color 0.3s;
-        }
-        
-        input[type="text"]:focus {
-            outline: none;
-            border-color: #667eea;
+            justify-content: center;
         }
         
         button {
@@ -76,6 +63,25 @@
         
         button:active {
             transform: translateY(0);
+        }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .selected-path {
+            padding: 12px 15px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #666;
+            text-align: center;
+        }
+        
+        .selected-path strong {
+            color: #333;
         }
         
         .message {
@@ -198,6 +204,184 @@
             padding: 60px 20px;
             color: #999;
         }
+        
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📁 文件管理器</h1>
+        
+        <div class="action-bar">
+            <button id="selectBtn" onclick="selectFolder()">选择文件夹</button>
+        </div>
+        
+        <div id="selectedPath" class="selected-path" style="display: none;">
+            <strong>当前文件夹：</strong><span id="pathText"></span>
+        </div>
+        
+        <div id="message" class="message"></div>
+        
+        <div id="stats" class="stats" style="display: none;">
+            <div class="stat-item">
+                <div class="stat-value" id="totalFiles">0</div>
+                <div class="stat-label">文件总数</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="totalSize">0 KB</div>
+                <div class="stat-label">总大小</div>
+            </div>
+        </div>
+        
+        <div id="fileList"></div>
+    </div>
+    
+    <script>
+        let currentPath = '';
+        
+        async function selectFolder() {
+            const selectBtn = document.getElementById('selectBtn');
+            selectBtn.disabled = true;
+            selectBtn.textContent = '选择中...';
+            
+            try {
+                // 使用 webview2 绑定的 selectFolder 函数
+                if (window.selectFolder) {
+                    const resultJson = await window.selectFolder();
+                    const result = JSON.parse(resultJson);
+                    
+                    if (result.error) {
+                        showMessage('选择文件夹失败: ' + result.error, 'error');
+                    } else if (result.cancelled) {
+                        showMessage('已取消选择', 'error');
+                    } else if (result.path && result.files) {
+                        currentPath = result.path;
+                        document.getElementById('pathText').textContent = result.path;
+                        document.getElementById('selectedPath').style.display = 'block';
+                        displayFiles(result.files);
+                        showMessage(`成功加载 ${result.files.length} 个文件`, 'success');
+                    }
+                } else {
+                    // 备用方案：使用 API 接口
+                    const folderPath = prompt('请输入文件夹路径:');
+                    if (folderPath) {
+                        await loadFiles(folderPath);
+                    }
+                }
+            } catch (error) {
+                console.error('选择文件夹错误:', error);
+                showMessage('选择文件夹失败: ' + error.message, 'error');
+            } finally {
+                selectBtn.disabled = false;
+                selectBtn.textContent = '选择文件夹';
+            }
+        }
+        
+        async function loadFiles(path) {
+            currentPath = path;
+            document.getElementById('pathText').textContent = path;
+            document.getElementById('selectedPath').style.display = 'block';
+            
+            const fileList = document.getElementById('fileList');
+            fileList.innerHTML = '<div class="loading"><div class="spinner"></div>加载中...</div>';
+            
+            try {
+                const response = await fetch(`/files?path=${encodeURIComponent(path)}`);
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    displayFiles(result.data);
+                    showMessage(`成功加载 ${result.data.length} 个文件`, 'success');
+                } else {
+                    showMessage(result.message, 'error');
+                    fileList.innerHTML = '';
+                }
+            } catch (error) {
+                showMessage('加载失败: ' + error.message, 'error');
+                fileList.innerHTML = '';
+            }
+        }
+        
+        function displayFiles(files) {
+            const fileList = document.getElementById('fileList');
+            const statsDiv = document.getElementById('stats');
+            
+            if (!files || files.length === 0) {
+                fileList.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📭</div>
+                        <div>文件夹为空</div>
+                    </div>
+                `;
+                statsDiv.style.display = 'none';
+                return;
+            }
+            
+            // 计算统计信息
+            let totalSize = 0;
+            files.forEach(file => {
+                if (!file.isDir) {
+                    totalSize += file.size || 0;
+                }
+            });
+            
+            document.getElementById('totalFiles').textContent = files.length;
+            document.getElementById('totalSize').textContent = formatSize(totalSize);
+            statsDiv.style.display = 'flex';
+            
+            // 生成文件列表
+            let html = '<div class="file-list">';
+            files.forEach(file => {
+                const icon = file.isDir ? '📁' : '📄';
+                const size = file.isDir ? '-' : formatSize(file.size);
+                const date = new Date(file.modTime).toLocaleString('zh-CN');
+                
+                html += `
+                    <div class="file-item">
+                        <div class="file-icon">${icon}</div>
+                        <div class="file-info">
+                            <div class="file-name">${escapeHtml(file.name)}</div>
+                            <div class="file-details">${date}</div>
+                        </div>
+                        <div class="file-size">${size}</div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            
+            fileList.innerHTML = html;
+        }
+        
+        function formatSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function showMessage(text, type = 'success') {
+            const message = document.getElementById('message');
+            message.textContent = text;
+            message.className = 'message ' + type;
+            message.style.display = 'block';
+            
+            setTimeout(() => {
+                message.style.display = 'none';
+            }, 5000);
+        }
+    </script>
+</body>
+</html>
         
         .empty-icon {
             font-size: 64px;

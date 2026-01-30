@@ -20,6 +20,7 @@ echo [1/1] 编译 Windows GUI 版本...
 set GOOS=windows
 set GOARCH=amd64
 set CGO_ENABLED=1
+REM 使用 -H=windowsgui 隐藏命令行窗口
 go build -ldflags="-s -w -H=windowsgui" -o "%RELEASE_PATH%\filemanager-gui.exe" filemanager-gui.go
 
 if %errorlevel% equ 0 (
