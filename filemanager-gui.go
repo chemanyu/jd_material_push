@@ -2,7 +2,6 @@ package main
 
 import (
 	"embed"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -12,11 +11,14 @@ import (
 	"time"
 
 	"jd_material_push/internal/config"
-	"jd_material_push/internal/folder"
 	"jd_material_push/internal/handler"
 	"jd_material_push/internal/svc"
 
-	webview "github.com/webview/webview_go"
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/widget"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"
 )
@@ -100,63 +102,96 @@ func main() {
 	time.Sleep(500 * time.Millisecond)
 	log.Println("后端服务已启动")
 
-	// 创建并显示窗口
-	url := fmt.Sprintf("http://127.0.0.1:%d", port)
-	log.Printf("准备打开窗口: %s", url)
+	// 创建 Fyne 应用
+	myApp := app.New()
+	myWindow := myApp.NewWindow("文件管理器")
+	myWindow.Resize(fyne.NewSize(600, 400))
 
-	// 创建窗口 (debug=false 为生产模式)
-	w := webview.New(false)
-	if w == nil {
-		log.Fatal("创建 WebView 窗口失败")
-	}
-	defer w.Destroy()
+	// 创建界面元素
+	var fileList *widget.List
+	var selectedPath string
+	var fileInfos []FileInfo
 
-	w.SetTitle("文件管理器")
-	w.SetSize(1000, 700, webview.HintNone)
-	log.Println("WebView 窗口创建成功")
+	// 文件列表
+	fileList = widget.NewList(
+		func() int {
+			return len(fileInfos)
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("")
+		},
+		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			label := obj.(*widget.Label)
+			if id < len(fileInfos) {
+				fileInfo := fileInfos[id]
+				icon := "📄"
+				if fileInfo.IsDir {
+					icon = "📁"
+				}
+				label.SetText(fmt.Sprintf("%s %s", icon, fileInfo.Name))
+			}
+		},
+	)
 
-	// 绑定文件夹选择函数
-	log.Println("绑定 JavaScript 函数...")
-	err = w.Bind("selectFolder", func() string {
+	// 路径标签
+	pathLabel := widget.NewLabel("请选择文件夹")
+
+	// 选择文件夹按钮
+	selectBtn := widget.NewButton("选择文件夹", func() {
 		log.Println("用户点击了选择文件夹按钮")
-		// 使用 Windows 原生文件夹选择对话框
-		selectedPath, err := folder.SelectFolder()
-		if err != nil {
-			log.Printf("文件夹选择失败: %v", err)
-			return "{\"error\": \"" + err.Error() + "\"}"
-		}
+		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
+			if err != nil {
+				log.Printf("选择文件夹出错: %v", err)
+				dialog.ShowError(err, myWindow)
+				return
+			}
+			if uri == nil {
+				log.Println("用户取消了选择")
+				return
+			}
 
-		if selectedPath == "" {
-			log.Println("用户取消了文件夹选择")
-			// 用户取消选择
-			return "{\"cancelled\": true}"
-		}
+			selectedPath = uri.Path()
+			log.Printf("用户选择了文件夹: %s", selectedPath)
+			pathLabel.SetText(selectedPath)
 
-		log.Printf("用户选择了文件夹: %s", selectedPath)
-		// 扫描文件夹并返回文件列表
-		files := scanFolder(selectedPath)
-		result := map[string]interface{}{
-			"path":  selectedPath,
-			"files": files,
-		}
-		jsonData, _ := json.Marshal(result)
-		return string(jsonData)
+			// 扫描文件夹
+			fileInfos = scanFolder(selectedPath)
+			fileList.Refresh()
+
+			log.Printf("扫描到 %d 个文件/文件夹", len(fileInfos))
+		}, myWindow)
 	})
-	if err != nil {
-		log.Fatalf("绑定函数失败: %v", err)
-	}
-	log.Println("函数绑定成功")
 
-	log.Printf("导航到页面: %s", url)
-	w.Navigate(url)
+	// 提交按钮
+	submitBtn := widget.NewButton("提交文件列表", func() {
+		if selectedPath == "" {
+			dialog.ShowInformation("提示", "请先选择文件夹", myWindow)
+			return
+		}
+		log.Printf("提交文件列表，共 %d 个文件", len(fileInfos))
+		dialog.ShowInformation("成功", fmt.Sprintf("已扫描 %d 个文件/文件夹", len(fileInfos)), myWindow)
+	})
 
-	log.Println("进入主循环...")
-	w.Run()
+	// 布局
+	content := container.NewBorder(
+		container.NewVBox(pathLabel, selectBtn),
+		submitBtn,
+		nil,
+		nil,
+		fileList,
+	)
 
-	log.Println("窗口已关闭，停止服务器...")
-	// 窗口关闭后停止服务器
-	server.Stop()
-	log.Println("程序正常退出")
+	myWindow.SetContent(content)
+
+	// 关闭时停止服务器
+	myWindow.SetOnClosed(func() {
+		log.Println("窗口已关闭，停止服务器...")
+		server.Stop()
+		log.Println("程序正常退出")
+	})
+
+	log.Println("显示窗口...")
+	myWindow.ShowAndRun()
 }
 
 // scanFolder 扫描文件夹并返回文件信息
