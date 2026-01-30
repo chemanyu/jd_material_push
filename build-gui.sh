@@ -5,7 +5,7 @@ echo "正在构建 GUI 版本（独立窗口）..."
 echo "===================================="
 
 # 设置发布路径
-RELEASE_PATH="./release"
+RELEASE_PATH="/Users/chemanyu/Desktop/release"
 
 # 创建发布文件夹
 echo ""
