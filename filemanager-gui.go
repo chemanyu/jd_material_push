@@ -93,9 +93,7 @@ func main() {
 	// 在后台启动服务器
 	go func() {
 		log.Println("后端服务开始监听...")
-		if err := server.Start(); err != nil {
-			log.Printf("服务器启动错误: %v", err)
-		}
+		server.Start()
 	}()
 
 	// 等待服务器启动
@@ -106,20 +104,13 @@ func main() {
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
 	log.Printf("准备打开窗口: %s", url)
 
-	w := webview2.NewWithOptions(webview2.WebViewOptions{
-		Debug:     false,
-		AutoFocus: true,
-		WindowOptions: webview2.WindowOptions{
-			Title:  "文件管理器",
-			Width:  uint(1000),
-			Height: uint(700),
-			IconId: uint(2),
-		},
-	})
+	w := webview2.New(false)
 	if w == nil {
 		log.Fatal("创建 WebView2 窗口失败，可能缺少 WebView2 运行时")
 	}
 	defer w.Destroy()
+	w.SetTitle("文件管理器")
+	w.SetSize(1000, 700, webview2.HintNone)
 	log.Println("WebView2 窗口创建成功")
 
 	// 绑定文件夹选择函数
