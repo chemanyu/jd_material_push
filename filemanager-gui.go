@@ -104,7 +104,16 @@ func main() {
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
 	log.Printf("准备打开窗口: %s", url)
 
-	w := webview2.New(false)
+	w := webview2.NewWithOptions(webview2.WebViewOptions{
+		Debug:     false,
+		AutoFocus: true,
+		WindowOptions: webview2.WindowOptions{
+			Title:  "文件管理器",
+			Width:  uint(1000),
+			Height: uint(700),
+			IconId: uint(2),
+		},
+	})
 	if w == nil {
 		log.Fatal("创建 WebView2 窗口失败，可能缺少 WebView2 运行时")
 	}
