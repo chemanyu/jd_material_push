@@ -3,8 +3,9 @@ module jd_material_push
 go 1.23.12
 
 require (
-	github.com/jchv/go-webview2 v0.0.0-20250406165304-0bcfea011047
+	github.com/webview/webview_go v0.0.0-20240831120633-6173450d4dd6
 	github.com/zeromicro/go-zero v1.9.4
+// ... 其他依赖
 )
 
 require (
@@ -19,7 +20,6 @@ require (
 	github.com/grafana/pyroscope-go v1.2.7 // indirect
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.9 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.20.0 // indirect
-	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/klauspost/compress v1.17.11 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

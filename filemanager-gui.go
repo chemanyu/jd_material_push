@@ -16,7 +16,7 @@ import (
 	"jd_material_push/internal/handler"
 	"jd_material_push/internal/svc"
 
-	"github.com/jchv/go-webview2"
+	webview "github.com/webview/webview_go"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"
 )
@@ -104,23 +104,16 @@ func main() {
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
 	log.Printf("准备打开窗口: %s", url)
 
-	w := webview2.NewWithOptions(webview2.WebViewOptions{
-		Debug:     false,
-		AutoFocus: true,
-		WindowOptions: webview2.WindowOptions{
-			Title:  "文件管理器",
-			Width:  uint(1000),
-			Height: uint(700),
-			IconId: uint(2),
-		},
-	})
+	// 创建窗口 (debug=false 为生产模式)
+	w := webview.New(false)
 	if w == nil {
-		log.Fatal("创建 WebView2 窗口失败，可能缺少 WebView2 运行时")
+		log.Fatal("创建 WebView 窗口失败")
 	}
 	defer w.Destroy()
+
 	w.SetTitle("文件管理器")
-	w.SetSize(1000, 700, webview2.HintNone)
-	log.Println("WebView2 窗口创建成功")
+	w.SetSize(1000, 700, webview.HintNone)
+	log.Println("WebView 窗口创建成功")
 
 	// 绑定文件夹选择函数
 	log.Println("绑定 JavaScript 函数...")
