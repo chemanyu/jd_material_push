@@ -1,0 +1,4 @@
+Name: filemanager-api
+Host: 0.0.0.0
+Port: 8888
+Timeout: 30000  # 请求超时时间(毫秒)
