@@ -2,7 +2,10 @@ module jd_material_push
 
 go 1.23.12
 
-require github.com/zeromicro/go-zero v1.9.4
+require (
+	github.com/jchv/go-webview2 v0.0.0-20221223143126-dc24628cff85
+	github.com/zeromicro/go-zero v1.9.4
+)
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect

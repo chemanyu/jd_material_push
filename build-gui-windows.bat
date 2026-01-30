@@ -43,14 +43,14 @@ echo 创建使用说明...
 echo 文件管理器使用说明
 echo.
 echo ==================================================
-echo Windows GUI 版本（独立窗口）
+echo Windows GUI 版本 ^(独立窗口^)
 echo ==================================================
 echo.
 echo 【使用方法】
 echo 1. 双击运行 filemanager-gui.exe
 echo 2. 会弹出一个独立的小窗口
 echo 3. 在输入框中输入文件夹路径，例如：C:\Users
-echo 4. 点击"获取文件列表"按钮查看文件
+echo 4. 点击 获取文件列表 按钮查看文件
 echo 5. 关闭窗口即可退出程序
 echo.
 echo ==================================================
@@ -63,9 +63,9 @@ echo.
 echo ==================================================
 echo 系统要求
 echo ==================================================
-echo - Windows 10/11（64位）
-echo - WebView2 运行时（Windows 11 已内置）
-echo - 如果无法运行，请访问以下链接下载 WebView2：
+echo - Windows 10/11 64位
+echo - WebView2 运行时 Windows 11 已内置
+echo - 如果无法运行，请访问以下链接下载 WebView2
 echo   https://developer.microsoft.com/microsoft-edge/webview2/
 ) > "%RELEASE_PATH%\使用说明.txt"
 
