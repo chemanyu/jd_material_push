@@ -18,8 +18,11 @@ import (
 	"jd_material_push/internal/svc"
 	"jd_material_push/internal/types"
 
+	"image/color"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
@@ -169,6 +172,10 @@ func main() {
 	releaseCopyEntry := widget.NewEntry()
 	releaseCopyEntry.SetPlaceHolder("请输入投放文案")
 	releaseCopyEntry.SetText("使用媒体平台推荐文案")
+
+	// 限制投放文案输入框的高度
+	releaseCopyContainer := container.NewVBox(releaseCopyEntry)
+	releaseCopyContainer.Resize(fyne.NewSize(0, 60)) // 限制高度为60像素
 
 	// 选中的媒体显示标签 - 使用多行富文本显示
 	selectedMediaLabel := widget.NewRichTextFromMarkdown("**未选择**")
@@ -332,23 +339,30 @@ func main() {
 			return len(fileInfos)
 		},
 		func() fyne.CanvasObject {
-			return widget.NewLabel("")
+			// 使用深色文本的 Label
+			label := canvas.NewText("", color.RGBA{R: 0, G: 0, B: 0, A: 255})
+			label.TextSize = 20
+			label.TextStyle = fyne.TextStyle{Bold: true}
+			return label
 		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
-			label := obj.(*widget.Label)
+			label := obj.(*canvas.Text)
 			if id < len(fileInfos) {
 				fileInfo := fileInfos[id]
 				icon := IconFile
 				if fileInfo.IsDir {
 					icon = IconFolder
 				}
-				label.SetText(fmt.Sprintf("%s%s", icon, fileInfo.Name))
+				label.Text = fmt.Sprintf("%s%s", icon, fileInfo.Name)
+				label.Refresh()
 			}
 		},
 	)
 
-	// 路径标签
-	pathLabel := widget.NewLabel("请选择文件夹")
+	// 路径标签 - 使用深色文本
+	pathLabel := canvas.NewText("请选择文件夹", color.RGBA{R: 0, G: 0, B: 0, A: 255})
+	pathLabel.TextSize = 14
+	pathLabel.TextStyle = fyne.TextStyle{Bold: true}
 
 	// 选择文件夹按钮
 	selectBtn := widget.NewButton("选择文件夹", func() {
@@ -366,9 +380,8 @@ func main() {
 
 			selectedPath = uri.Path()
 			log.Printf("用户选择了文件夹: %s", selectedPath)
-			pathLabel.SetText(selectedPath)
-
-			// 扫描文件夹
+			pathLabel.Text = selectedPath
+			pathLabel.Refresh()
 			fileInfos = scanFolder(selectedPath)
 			fileList.Refresh()
 
@@ -424,12 +437,12 @@ func main() {
 		selectCategoryBtn,
 		widget.NewSeparator(),
 		widget.NewLabelWithStyle("投放文案:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		releaseCopyEntry,
+		releaseCopyContainer,
 	)
 
 	// 给表单内容添加滚动支持
 	formScroll := container.NewVScroll(formContent)
-	formScroll.SetMinSize(fyne.NewSize(0, 200))
+	formScroll.SetMinSize(fyne.NewSize(0, 350)) // 增加最小高度，确保所有选项可见
 
 	content := container.NewBorder(
 		container.NewVBox(pathLabel, selectBtn, widget.NewSeparator(), formScroll),
