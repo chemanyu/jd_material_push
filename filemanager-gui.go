@@ -123,7 +123,7 @@ func main() {
 
 	myWindow := myApp.NewWindow("文件管理器")
 	log.Println("创建窗口成功")
-	myWindow.Resize(fyne.NewSize(600, 400))
+	myWindow.Resize(fyne.NewSize(800, 600))
 
 	// 创建界面元素
 	var fileList *widget.List
@@ -170,12 +170,12 @@ func main() {
 	releaseCopyEntry.SetPlaceHolder("请输入投放文案")
 	releaseCopyEntry.SetText("使用媒体平台推荐文案")
 
-	// 选中的媒体显示标签
-	selectedMediaLabel := widget.NewLabel("未选择")
+	// 选中的媒体显示标签 - 使用多行富文本显示
+	selectedMediaLabel := widget.NewRichTextFromMarkdown("**未选择**")
 	selectedMediaLabel.Wrapping = fyne.TextWrapWord
 
-	// 选中的品类显示标签
-	selectedCategoryLabel := widget.NewLabel("未选择")
+	// 选中的品类显示标签 - 使用多行富文本显示
+	selectedCategoryLabel := widget.NewRichTextFromMarkdown("**未选择**")
 	selectedCategoryLabel.Wrapping = fyne.TextWrapWord
 
 	// 投放媒体选择对话框
@@ -188,10 +188,14 @@ func main() {
 			tempSelected[val] = true
 		}
 
-		// 创建复选框
-		for label, value := range mediaOptions {
+		// 创建复选框 - 按照固定顺序显示
+		mediaOrder := []string{
+			"巨量引擎", "巨量星图", "快手磁力智投", "快手磁力聚星",
+			"百度营销", "广点通", "B站", "趣头条",
+		}
+		for _, label := range mediaOrder {
+			value := mediaOptions[label]
 			label := label
-			value := value
 			check := widget.NewCheck(label, func(checked bool) {
 				if checked {
 					tempSelected[value] = true
@@ -203,25 +207,33 @@ func main() {
 			checkBoxes = append(checkBoxes, check)
 		}
 
-		content := container.NewVBox()
+		content := container.NewVBox(
+			widget.NewLabel("请选择一个或多个投放媒体平台："),
+			widget.NewSeparator(),
+		)
 		for _, cb := range checkBoxes {
 			content.Add(cb)
 		}
 
+		// 创建带滚动的容器，设置最小尺寸
+		scrollContent := container.NewVScroll(content)
+		scrollContent.SetMinSize(fyne.NewSize(400, 300))
+
 		dialog.ShowCustomConfirm("选择投放媒体", "确定", "取消",
-			container.NewVScroll(content),
+			scrollContent,
 			func(confirmed bool) {
 				if confirmed {
 					selectedMedia = []string{}
 					for val := range tempSelected {
 						selectedMedia = append(selectedMedia, val)
 					}
-					// 更新显示标签
+					// 更新显示标签 - 使用更清晰的格式
 					if len(selectedMedia) == 0 {
-						selectedMediaLabel.SetText("未选择")
+						selectedMediaLabel.ParseMarkdown("**未选择**")
 					} else {
 						displayLabels := []string{}
-						for label, value := range mediaOptions {
+						for _, label := range mediaOrder {
+							value := mediaOptions[label]
 							for _, sel := range selectedMedia {
 								if value == sel {
 									displayLabels = append(displayLabels, label)
@@ -229,7 +241,11 @@ func main() {
 								}
 							}
 						}
-						selectedMediaLabel.SetText(fmt.Sprintf("已选择 %d 项: %v", len(selectedMedia), displayLabels))
+						mdText := fmt.Sprintf("**已选择 %d 项：**\n", len(selectedMedia))
+						for i, label := range displayLabels {
+							mdText += fmt.Sprintf("%d. %s\n", i+1, label)
+						}
+						selectedMediaLabel.ParseMarkdown(mdText)
 					}
 				}
 			}, myWindow)
@@ -245,10 +261,16 @@ func main() {
 			tempSelected[val] = true
 		}
 
-		// 创建复选框
-		for label, value := range categoryOptions {
+		// 创建复选框 - 按照固定顺序显示
+		categoryOrder := []string{
+			"本地生活/旅游出行", "家庭清洁/纸品", "鲜花/奢侈品", "数码",
+			"家用电器", "食品饮料", "厨具", "美妆护肤",
+			"手机通讯", "服饰内衣", "生活日用", "个人护理",
+			"鞋靴", "电脑、办公", "运动户外", "生鲜", "母婴",
+		}
+		for _, label := range categoryOrder {
+			value := categoryOptions[label]
 			label := label
-			value := value
 			check := widget.NewCheck(label, func(checked bool) {
 				if checked {
 					tempSelected[value] = true
@@ -260,25 +282,33 @@ func main() {
 			checkBoxes = append(checkBoxes, check)
 		}
 
-		content := container.NewVBox()
+		content := container.NewVBox(
+			widget.NewLabel("请选择一个或多个素材品类："),
+			widget.NewSeparator(),
+		)
 		for _, cb := range checkBoxes {
 			content.Add(cb)
 		}
 
+		// 创建带滚动的容器，设置最小尺寸
+		scrollContent := container.NewVScroll(content)
+		scrollContent.SetMinSize(fyne.NewSize(400, 400))
+
 		dialog.ShowCustomConfirm("选择素材品类", "确定", "取消",
-			container.NewVScroll(content),
+			scrollContent,
 			func(confirmed bool) {
 				if confirmed {
 					selectedCategories = []string{}
 					for val := range tempSelected {
 						selectedCategories = append(selectedCategories, val)
 					}
-					// 更新显示标签
+					// 更新显示标签 - 使用更清晰的格式
 					if len(selectedCategories) == 0 {
-						selectedCategoryLabel.SetText("未选择")
+						selectedCategoryLabel.ParseMarkdown("**未选择**")
 					} else {
 						displayLabels := []string{}
-						for label, value := range categoryOptions {
+						for _, label := range categoryOrder {
+							value := categoryOptions[label]
 							for _, sel := range selectedCategories {
 								if value == sel {
 									displayLabels = append(displayLabels, label)
@@ -286,7 +316,11 @@ func main() {
 								}
 							}
 						}
-						selectedCategoryLabel.SetText(fmt.Sprintf("已选择 %d 项: %v", len(selectedCategories), displayLabels))
+						mdText := fmt.Sprintf("**已选择 %d 项：**\n", len(selectedCategories))
+						for i, label := range displayLabels {
+							mdText += fmt.Sprintf("%d. %s\n", i+1, label)
+						}
+						selectedCategoryLabel.ParseMarkdown(mdText)
 					}
 				}
 			}, myWindow)
@@ -381,18 +415,24 @@ func main() {
 
 	// 布局
 	formContent := container.NewVBox(
-		widget.NewLabel("投放媒体:"),
-		container.NewBorder(nil, nil, nil, selectMediaBtn, selectedMediaLabel),
+		widget.NewLabelWithStyle("投放媒体:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		container.NewPadded(selectedMediaLabel),
+		selectMediaBtn,
 		widget.NewSeparator(),
-		widget.NewLabel("素材品类:"),
-		container.NewBorder(nil, nil, nil, selectCategoryBtn, selectedCategoryLabel),
+		widget.NewLabelWithStyle("素材品类:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		container.NewPadded(selectedCategoryLabel),
+		selectCategoryBtn,
 		widget.NewSeparator(),
-		widget.NewLabel("投放文案:"),
+		widget.NewLabelWithStyle("投放文案:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		releaseCopyEntry,
 	)
 
+	// 给表单内容添加滚动支持
+	formScroll := container.NewVScroll(formContent)
+	formScroll.SetMinSize(fyne.NewSize(0, 200))
+
 	content := container.NewBorder(
-		container.NewVBox(pathLabel, selectBtn, widget.NewSeparator(), formContent),
+		container.NewVBox(pathLabel, selectBtn, widget.NewSeparator(), formScroll),
 		submitBtn,
 		nil,
 		nil,
@@ -528,24 +568,33 @@ func uploadAndSubmitMaterial(folderPath string, port int, mediaList, categoryLis
 		if result.Success {
 			successCount++
 			sizeStr := formatFileSize(result.FileSize)
-			resultDetails += fmt.Sprintf("✅ %s\n", result.FileName)
-			resultDetails += fmt.Sprintf("   大小: %s\n", sizeStr)
-			resultDetails += fmt.Sprintf("   URL: %s\n\n", result.URL)
+			resultDetails += fmt.Sprintf("### ✅ %s\n", result.FileName)
+			resultDetails += fmt.Sprintf("- **大小:** %s\n", sizeStr)
+			resultDetails += fmt.Sprintf("- **URL:** `%s`\n\n", result.URL)
 		} else {
 			failCount++
-			resultDetails += fmt.Sprintf("❌ %s\n", result.FileName)
-			resultDetails += fmt.Sprintf("   错误: %s\n\n", result.ErrorMsg)
+			resultDetails += fmt.Sprintf("### ❌ %s\n", result.FileName)
+			resultDetails += fmt.Sprintf("- **错误:** %s\n\n", result.ErrorMsg)
 		}
 	}
 
 	// 添加提交结果
 	submitStatus := "❌ 提交失败"
+	submitIcon := "❌"
 	if materialResp.Code == 200 && materialResp.Result {
 		submitStatus = "✅ 提交成功"
+		submitIcon = "✅"
 	}
 
-	summary := fmt.Sprintf("上传完成！\n成功: %d 个文件\n失败: %d 个文件\n\n素材提交状态: %s\n提交信息: %s\n\n详细信息：\n%s",
-		successCount, failCount, submitStatus, materialResp.Message, resultDetails)
+	summary := fmt.Sprintf("# 📤 上传完成\n\n"+
+		"## 📊 统计信息\n"+
+		"- **成功上传:** %d 个文件\n"+
+		"- **失败上传:** %d 个文件\n"+
+		"- **素材提交:** %s %s\n"+
+		"- **提交信息:** %s\n\n"+
+		"---\n\n"+
+		"## 📝 详细信息\n\n%s",
+		successCount, failCount, submitIcon, submitStatus, materialResp.Message, resultDetails)
 
 	log.Println(summary)
 	return summary
@@ -593,19 +642,24 @@ func uploadFilesToJingcheng(folderPath string, port int) string {
 			log.Printf("上传成功: %s -> %s", result.FileName, result.URL)
 			// 格式化文件大小
 			sizeStr := formatFileSize(result.FileSize)
-			resultDetails += fmt.Sprintf("✅ %s\n", result.FileName)
-			resultDetails += fmt.Sprintf("   大小: %s\n", sizeStr)
-			resultDetails += fmt.Sprintf("   URL: %s\n\n", result.URL)
+			resultDetails += fmt.Sprintf("### ✅ %s\n", result.FileName)
+			resultDetails += fmt.Sprintf("- **大小:** %s\n", sizeStr)
+			resultDetails += fmt.Sprintf("- **URL:** `%s`\n\n", result.URL)
 		} else {
 			failCount++
 			log.Printf("上传失败: %s, 错误: %s", result.FileName, result.ErrorMsg)
-			resultDetails += fmt.Sprintf("❌ %s\n", result.FileName)
-			resultDetails += fmt.Sprintf("   错误: %s\n\n", result.ErrorMsg)
+			resultDetails += fmt.Sprintf("### ❌ %s\n", result.FileName)
+			resultDetails += fmt.Sprintf("- **错误:** %s\n\n", result.ErrorMsg)
 		}
 	}
 
 	// 构建汇总信息
-	summary := fmt.Sprintf("上传完成！\n成功: %d 个文件\n失败: %d 个文件\n\n详细信息：\n%s",
+	summary := fmt.Sprintf("# 📤 上传完成\n\n"+
+		"## 📊 统计信息\n"+
+		"- **成功上传:** %d 个文件\n"+
+		"- **失败上传:** %d 个文件\n\n"+
+		"---\n\n"+
+		"## 📝 详细信息\n\n%s",
 		successCount, failCount, resultDetails)
 
 	log.Println(summary)
@@ -628,14 +682,16 @@ func formatFileSize(bytes int64) string {
 
 // showUploadResultDialog 显示上传结果对话框
 func showUploadResultDialog(content string, window fyne.Window) {
-	// 创建多行文本显示
-	resultLabel := widget.NewLabel(content)
-	resultLabel.Wrapping = fyne.TextWrapWord
+	// 创建富文本显示，支持Markdown格式
+	resultText := widget.NewRichTextFromMarkdown(content)
+	resultText.Wrapping = fyne.TextWrapWord
 
 	// 创建滚动容器
-	scroll := container.NewScroll(resultLabel)
-	scroll.SetMinSize(fyne.NewSize(600, 400))
+	scroll := container.NewScroll(resultText)
+	scroll.SetMinSize(fyne.NewSize(700, 500))
 
-	// 创建对话框（dialog.ShowCustom 的第二个参数 "关闭" 就是按钮文字）
-	dialog.ShowCustom("上传结果", "关闭", scroll, window)
+	// 创建对话框
+	d := dialog.NewCustom("📊 上传结果", "关闭", scroll, window)
+	d.Resize(fyne.NewSize(750, 550))
+	d.Show()
 }
