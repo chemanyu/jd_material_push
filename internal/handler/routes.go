@@ -15,27 +15,10 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
-				Method:  http.MethodGet,
-				Path:    "/api/files",
-				Handler: GetFilesHandler(serverCtx),
+				Method:  http.MethodPost,
+				Path:    "/api/upload",
+				Handler: UploadFilesHandler(serverCtx),
 			},
 		},
 	)
-
-	// 添加静态文件服务
-	server.AddRoute(rest.Route{
-		Method: http.MethodGet,
-		Path:   "/",
-		Handler: func(w http.ResponseWriter, r *http.Request) {
-			http.ServeFile(w, r, "static/index.html")
-		},
-	})
-
-	server.AddRoute(rest.Route{
-		Method: http.MethodGet,
-		Path:   "/static/:file",
-		Handler: func(w http.ResponseWriter, r *http.Request) {
-			http.StripPrefix("/static/", http.FileServer(http.Dir("static"))).ServeHTTP(w, r)
-		},
-	})
 }

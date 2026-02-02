@@ -1,11 +1,14 @@
 package main
 
 import (
-	"embed"
+	"bytes"
+	_ "embed"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -13,6 +16,7 @@ import (
 	"jd_material_push/internal/config"
 	"jd_material_push/internal/handler"
 	"jd_material_push/internal/svc"
+	"jd_material_push/internal/types"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -28,9 +32,6 @@ const (
 	IconFolder = "[DIR] "
 	IconFile   = "[FILE] "
 )
-
-//go:embed static/index.html
-var staticFiles embed.FS
 
 //go:embed etc/filemanager-api.yaml
 var configContent []byte
@@ -186,7 +187,21 @@ func main() {
 			return
 		}
 		log.Printf("提交文件列表，共 %d 个文件", len(fileInfos))
-		dialog.ShowInformation("成功", fmt.Sprintf("已扫描 %d 个文件/文件夹", len(fileInfos)), myWindow)
+
+		// 显示进度对话框
+		progressDialog := dialog.NewCustomWithoutButtons("上传中",
+			widget.NewProgressBarInfinite(),
+			myWindow)
+		progressDialog.Show()
+
+		// 在后台上传，完成后在主线程显示结果
+		go func() {
+			result := uploadFilesToJingcheng(selectedPath, port)
+
+			// 关闭进度对话框并在主线程显示结果
+			progressDialog.Hide()
+			showUploadResultDialog(result, myWindow)
+		}()
 	})
 
 	// 布局
@@ -259,4 +274,93 @@ func (ct *chineseTheme) Font(style fyne.TextStyle) fyne.Resource {
 	// NotoSansSC 是可变字体，支持粗细变化，可以处理所有样式
 	// 对于 Monospace 等宽字体，也使用中文字体以保证中文显示正常
 	return fyne.NewStaticResource("NotoSansSC-Regular.ttf", chineseFont)
+}
+
+// uploadFilesToJingcheng 上传文件到京橙平台
+func uploadFilesToJingcheng(folderPath string, port int) string {
+	log.Printf("开始上传文件夹: %s", folderPath)
+
+	// 构建请求
+	reqBody := types.UploadRequest{
+		FolderPath: folderPath,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		log.Printf("序列化请求失败: %v", err)
+		return fmt.Sprintf("序列化请求失败: %v", err)
+	}
+
+	// 发送请求
+	url := fmt.Sprintf("http://127.0.0.1:%d/api/upload", port)
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		log.Printf("发送上传请求失败: %v", err)
+		return fmt.Sprintf("发送上传请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// 解析响应
+	var uploadResp types.UploadResponse
+	if err := json.NewDecoder(resp.Body).Decode(&uploadResp); err != nil {
+		log.Printf("解析响应失败: %v", err)
+		return fmt.Sprintf("解析响应失败: %v", err)
+	}
+
+	// 统计结果并构建详细信息
+	successCount := 0
+	failCount := 0
+	var resultDetails string
+
+	for _, result := range uploadResp.Data {
+		if result.Success {
+			successCount++
+			log.Printf("上传成功: %s -> %s", result.FileName, result.URL)
+			// 格式化文件大小
+			sizeStr := formatFileSize(result.FileSize)
+			resultDetails += fmt.Sprintf("✅ %s\n", result.FileName)
+			resultDetails += fmt.Sprintf("   大小: %s\n", sizeStr)
+			resultDetails += fmt.Sprintf("   URL: %s\n\n", result.URL)
+		} else {
+			failCount++
+			log.Printf("上传失败: %s, 错误: %s", result.FileName, result.ErrorMsg)
+			resultDetails += fmt.Sprintf("❌ %s\n", result.FileName)
+			resultDetails += fmt.Sprintf("   错误: %s\n\n", result.ErrorMsg)
+		}
+	}
+
+	// 构建汇总信息
+	summary := fmt.Sprintf("上传完成！\n成功: %d 个文件\n失败: %d 个文件\n\n详细信息：\n%s",
+		successCount, failCount, resultDetails)
+
+	log.Println(summary)
+	return summary
+}
+
+// formatFileSize 格式化文件大小
+func formatFileSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// showUploadResultDialog 显示上传结果对话框
+func showUploadResultDialog(content string, window fyne.Window) {
+	// 创建多行文本显示
+	resultLabel := widget.NewLabel(content)
+	resultLabel.Wrapping = fyne.TextWrapWord
+
+	// 创建滚动容器
+	scroll := container.NewScroll(resultLabel)
+	scroll.SetMinSize(fyne.NewSize(600, 400))
+
+	// 创建对话框（dialog.ShowCustom 的第二个参数 "关闭" 就是按钮文字）
+	dialog.ShowCustom("上传结果", "关闭", scroll, window)
 }

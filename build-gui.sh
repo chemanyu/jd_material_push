@@ -12,7 +12,6 @@ echo ""
 echo "创建发布文件夹..."
 rm -rf "$RELEASE_PATH"
 mkdir -p "$RELEASE_PATH/etc"
-mkdir -p "$RELEASE_PATH/static"
 
 # 构建 Windows GUI 版本
 echo ""
@@ -45,7 +44,6 @@ echo ""
 echo "复制配置文件..."
 
 cp etc/filemanager-api.yaml "$RELEASE_PATH/etc/"
-cp static/index.html "$RELEASE_PATH/static/"
 
 # 创建启动说明
 cat > "$RELEASE_PATH/使用说明.txt" << EOF

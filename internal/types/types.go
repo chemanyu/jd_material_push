@@ -20,3 +20,44 @@ type GetFilesResponse struct {
 	Message string     `json:"message"`
 	Data    []FileInfo `json:"data"`
 }
+
+// UploadRequest 上传请求
+type UploadRequest struct {
+	FolderPath string `json:"folderPath"` // 文件夹路径
+}
+
+// UploadResult 单个文件上传结果
+type UploadResult struct {
+	FileName string `json:"fileName"` // 文件名
+	Success  bool   `json:"success"`  // 是否成功
+	URL      string `json:"url"`      // 上传后的 URL
+	LocalURL string `json:"localUrl"` // 本地 URL
+	ErrorMsg string `json:"errorMsg"` // 错误信息
+	FileSize int64  `json:"fileSize"` // 文件大小
+}
+
+// UploadResponse 上传响应
+type UploadResponse struct {
+	Code    int            `json:"code"`
+	Message string         `json:"message"`
+	Data    []UploadResult `json:"data"`
+}
+
+// JingchengUploadResponse 京橙平台上传接口响应
+type JingchengUploadResponse struct {
+	Code     int                   `json:"code"`
+	Message  string                `json:"message"`
+	Result   JingchengUploadResult `json:"result"`
+	HasNext  bool                  `json:"hasNext"`
+	TotalNum int                   `json:"totalNum"`
+	UUID     string                `json:"uuid"`
+}
+
+// JingchengUploadResult 京橙上传结果
+type JingchengUploadResult struct {
+	FileName string `json:"fileName"`
+	FileSize int64  `json:"fileSize"`
+	FileType int    `json:"fileType"`
+	LocalURL string `json:"localUrl"`
+	URL      string `json:"url"`
+}
