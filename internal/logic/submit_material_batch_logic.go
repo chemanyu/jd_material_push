@@ -6,10 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
-	"path/filepath"
-	"strings"
 
 	"jd_material_push/internal/svc"
 	"jd_material_push/internal/types"
@@ -17,56 +16,34 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
-type SubmitMaterialLogic struct {
+type SubmitMaterialBatchLogic struct {
 	logx.Logger
 	ctx    context.Context
 	svcCtx *svc.ServiceContext
 }
 
-func NewSubmitMaterialLogic(ctx context.Context, svcCtx *svc.ServiceContext) *SubmitMaterialLogic {
-	return &SubmitMaterialLogic{
+func NewSubmitMaterialBatchLogic(ctx context.Context, svcCtx *svc.ServiceContext) *SubmitMaterialBatchLogic {
+	return &SubmitMaterialBatchLogic{
 		Logger: logx.WithContext(ctx),
 		ctx:    ctx,
 		svcCtx: svcCtx,
 	}
 }
 
-func (l *SubmitMaterialLogic) SubmitMaterial(req *types.SubmitMaterialRequest) (resp *types.SubmitMaterialResponse, err error) {
-	// 先获取上传的文件列表
-	uploadLogic := NewUploadFilesLogic(l.ctx, l.svcCtx)
-	uploadReq := &types.UploadRequest{
-		FolderPath: req.FolderPath,
-	}
-	uploadResp, err := uploadLogic.UploadFiles(uploadReq)
-	if err != nil {
-		return nil, err
-	}
-
-	// 构建素材列表
-	var materialList []types.MaterialItem
-	for _, result := range uploadResp.Data {
-		if result.Success {
-			// 根据文件扩展名判断素材类型
-			materialType := 1 // 默认图片
-			ext := strings.ToLower(filepath.Ext(result.FileName))
-			if ext == ".mp4" || ext == ".avi" || ext == ".mov" {
-				materialType = 2 // 视频
-			}
-
-			materialList = append(materialList, types.MaterialItem{
-				MaterialName: result.FileName,
-				MaterialSize: result.FileSize,
-				MaterialType: materialType,
-				URL:          result.URL,
-				LocalURL:     result.LocalURL,
-			})
-		}
-	}
-
-	if len(materialList) == 0 {
+func (l *SubmitMaterialBatchLogic) SubmitMaterialBatch(req *types.SubmitMaterialBatchRequest) (resp *types.SubmitMaterialResponse, err error) {
+	// 检查素材列表
+	if len(req.MaterialList) == 0 {
 		return &types.SubmitMaterialResponse{
 			Code:    400,
-			Message: "没有可提交的素材",
+			Message: "素材列表不能为空",
+			Result:  false,
+		}, nil
+	}
+
+	if len(req.MaterialList) > 20 {
+		return &types.SubmitMaterialResponse{
+			Code:    400,
+			Message: "单次最多提交20个素材",
 			Result:  false,
 		}, nil
 	}
@@ -107,6 +84,8 @@ func (l *SubmitMaterialLogic) SubmitMaterial(req *types.SubmitMaterialRequest) (
 			},
 		},
 	}
+	log.Println("media:", req.MediaList)
+	log.Println("category:", req.CategoryList)
 
 	applyAttrJSON, _ := json.Marshal(applyAttr)
 
@@ -115,7 +94,7 @@ func (l *SubmitMaterialLogic) SubmitMaterial(req *types.SubmitMaterialRequest) (
 		"funName": "extAddMaterial",
 		"param": map[string]interface{}{
 			"isApproval":   1,
-			"materialList": materialList,
+			"materialList": req.MaterialList,
 			"systemCode":   "jdOrange",
 			"businessCode": "伙伴计划--美数科技",
 			"applyAttr":    string(applyAttrJSON),
@@ -165,7 +144,7 @@ func (l *SubmitMaterialLogic) SubmitMaterial(req *types.SubmitMaterialRequest) (
 		return nil, err
 	}
 
-	logx.Infof("素材提交响应: %s", string(respBody))
+	logx.Infof("素材批量提交响应: %s", string(respBody))
 
 	// 解析响应
 	var submitResp types.SubmitMaterialResponse

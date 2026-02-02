@@ -10,16 +10,16 @@ import (
 	"github.com/zeromicro/go-zero/rest/httpx"
 )
 
-func SubmitMaterialHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+func SubmitMaterialBatchHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req types.SubmitMaterialRequest
+		var req types.SubmitMaterialBatchRequest
 		if err := httpx.Parse(r, &req); err != nil {
 			httpx.ErrorCtx(r.Context(), w, err)
 			return
 		}
 
-		l := logic.NewSubmitMaterialLogic(r.Context(), svcCtx)
-		resp, err := l.SubmitMaterial(&req)
+		l := logic.NewSubmitMaterialBatchLogic(r.Context(), svcCtx)
+		resp, err := l.SubmitMaterialBatch(&req)
 		if err != nil {
 			httpx.ErrorCtx(r.Context(), w, err)
 		} else {

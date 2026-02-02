@@ -88,3 +88,11 @@ type SubmitMaterialResponse struct {
 	TotalNum int    `json:"totalNum"`
 	UUID     string `json:"uuid"`
 }
+
+// SubmitMaterialBatchRequest 批量提交素材请求
+type SubmitMaterialBatchRequest struct {
+	MaterialList []MaterialItem `json:"materialList"` // 素材列表（最多20个）
+	MediaList    []string       `json:"mediaList"`    // 投放媒体列表
+	CategoryList []string       `json:"categoryList"` // 素材所属品类列表
+	ReleaseCopy  string         `json:"releaseCopy"`  // 投放文案
+}

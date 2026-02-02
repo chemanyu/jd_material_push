@@ -21,8 +21,8 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			},
 			{
 				Method:  http.MethodPost,
-				Path:    "/api/submit-material",
-				Handler: SubmitMaterialHandler(serverCtx),
+				Path:    "/api/submit-material-batch",
+				Handler: SubmitMaterialBatchHandler(serverCtx),
 			},
 		},
 	)

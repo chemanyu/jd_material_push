@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
+	"sync"
 
 	"jd_material_push/internal/svc"
 	"jd_material_push/internal/types"
@@ -57,23 +57,69 @@ func (l *UploadFilesLogic) UploadFiles(req *types.UploadRequest) (resp *types.Up
 		return resp, nil
 	}
 
-	// 遍历并上传文件
+	// 收集需要上传的文件
+	var filesToUpload []string
 	for _, file := range files {
 		if file.IsDir() {
 			continue
 		}
-
 		fileName := file.Name()
-		_ = strings.ToLower(filepath.Ext(fileName))
-
+		// 跳过隐藏文件
+		if len(fileName) > 0 && fileName[0] == '.' {
+			continue
+		}
 		filePath := filepath.Join(req.FolderPath, fileName)
-
-		// 上传单个文件
-		result := l.uploadSingleFile(filePath, fileName, cookie)
-		resp.Data = append(resp.Data, result)
+		filesToUpload = append(filesToUpload, filePath)
 	}
 
+	if len(filesToUpload) == 0 {
+		resp.Message = "没有找到可上传的文件"
+		return resp, nil
+	}
+
+	l.Infof("准备上传 %d 个文件", len(filesToUpload))
+
+	// 使用协程并发上传文件
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	maxConcurrent := 10 // 最大并发数
+	semaphore := make(chan struct{}, maxConcurrent)
+
+	for _, filePath := range filesToUpload {
+		wg.Add(1)
+		go func(fp string) {
+			defer wg.Done()
+
+			// 获取信号量
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			fileName := filepath.Base(fp)
+			result := l.uploadSingleFile(fp, fileName, cookie)
+
+			// 安全地添加到结果列表
+			mu.Lock()
+			resp.Data = append(resp.Data, result)
+			mu.Unlock()
+		}(filePath)
+	}
+
+	// 等待所有上传完成
+	wg.Wait()
+	l.Infof("所有文件上传完成，成功: %d, 总数: %d", countSuccessful(resp.Data), len(resp.Data))
+
 	return resp, nil
+}
+
+// countSuccessful 统计成功上传的文件数量
+func countSuccessful(results []types.UploadResult) int {
+	count := 0
+	for _, r := range results {
+		if r.Success {
+			count++
+		}
+	}
+	return count
 }
 
 // uploadSingleFile 上传单个文件到京橙平台

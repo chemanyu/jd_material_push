@@ -464,6 +464,12 @@ func scanFolder(folderPath string) []FileInfo {
 	}
 
 	for _, entry := range entries {
+		// 过滤掉 .DS_Store 和其他隐藏文件
+		if entry.Name() == ".DS_Store" || (len(entry.Name()) > 0 && entry.Name()[0] == '.') {
+			log.Printf("跳过隐藏文件: %s", entry.Name())
+			continue
+		}
+
 		info, err := entry.Info()
 		if err != nil {
 			continue
@@ -502,168 +508,206 @@ func (ct *chineseTheme) Font(style fyne.TextStyle) fyne.Resource {
 	return fyne.NewStaticResource("NotoSansSC-Regular.ttf", chineseFont)
 }
 
-// uploadAndSubmitMaterial 上传文件并提交素材到京橙平台
+// uploadAndSubmitMaterial 上传文件并提交素材到京橙平台（批量上传+批量提交）
 func uploadAndSubmitMaterial(folderPath string, port int, mediaList, categoryList []string, releaseCopy string) string {
 	log.Printf("开始上传文件夹: %s", folderPath)
 
-	// 第一步：上传文件到京橙存储
+	// 第一步：扫描文件夹获取所有文件
+	fileInfos := scanFolder(folderPath)
+	if len(fileInfos) == 0 {
+		return "# ⚠️ 上传失败\n\n没有找到任何文件"
+	}
+
+	// 只处理非目录文件
+	var files []FileInfo
+	for _, f := range fileInfos {
+		if !f.IsDir {
+			files = append(files, f)
+		}
+	}
+
+	if len(files) == 0 {
+		return "# ⚠️ 上传失败\n\n没有找到任何可上传的文件"
+	}
+
+	log.Printf("找到 %d 个文件，开始上传...", len(files))
+
+	// 第二步：调用一次上传接口，后端会处理文件夹中的所有文件
 	reqBody := types.UploadRequest{
 		FolderPath: folderPath,
 	}
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		log.Printf("序列化请求失败: %v", err)
-		return fmt.Sprintf("序列化请求失败: %v", err)
+		return fmt.Sprintf("# ⚠️ 上传失败\n\n序列化请求失败: %v", err)
 	}
 
 	url := fmt.Sprintf("http://127.0.0.1:%d/api/upload", port)
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		log.Printf("发送上传请求失败: %v", err)
-		return fmt.Sprintf("发送上传请求失败: %v", err)
+		return fmt.Sprintf("# ⚠️ 上传失败\n\n发送请求失败: %v", err)
 	}
 	defer resp.Body.Close()
 
 	var uploadResp types.UploadResponse
 	if err := json.NewDecoder(resp.Body).Decode(&uploadResp); err != nil {
-		log.Printf("解析响应失败: %v", err)
-		return fmt.Sprintf("解析响应失败: %v", err)
+		return fmt.Sprintf("# ⚠️ 上传失败\n\n解析响应失败: %v", err)
 	}
 
-	// 第二步：提交素材信息到素材中心
-	submitURL := fmt.Sprintf("http://127.0.0.1:%d/api/submit-material", port)
-	submitReq := types.SubmitMaterialRequest{
-		FolderPath:   folderPath,
-		MediaList:    mediaList,
-		CategoryList: categoryList,
-		ReleaseCopy:  releaseCopy,
+	uploadResults := uploadResp.Data
+
+	// 统计上传结果
+	successCount := 0
+	failCount := 0
+	var successResults []types.UploadResult
+	var resultDetails string
+
+	for _, result := range uploadResults {
+		if result.Success {
+			successCount++
+			successResults = append(successResults, result)
+			sizeStr := formatFileSize(result.FileSize)
+			resultDetails += fmt.Sprintf("### ✅ %s\n", result.FileName)
+			resultDetails += fmt.Sprintf("- **大小:** %s\n", sizeStr)
+			resultDetails += fmt.Sprintf("- **URL:** `%s`\n\n", result.URL)
+		} else {
+			failCount++
+			resultDetails += fmt.Sprintf("### ❌ %s\n", result.FileName)
+			resultDetails += fmt.Sprintf("- **错误:** %s\n\n", result.ErrorMsg)
+		}
+	}
+
+	// 第三步：批量提交素材（每20条一批）
+	var submitResults []types.SubmitMaterialResponse
+	batchSize := 20
+
+	if len(successResults) > 0 {
+		log.Printf("开始批量提交素材，共 %d 个成功文件", len(successResults))
+
+		for i := 0; i < len(successResults); i += batchSize {
+			end := i + batchSize
+			if end > len(successResults) {
+				end = len(successResults)
+			}
+			batch := successResults[i:end]
+
+			log.Printf("提交批次 %d: %d-%d/%d", i/batchSize+1, i+1, end, len(successResults))
+
+			// 提交这一批素材
+			submitResp := submitMaterialBatch(batch, mediaList, categoryList, releaseCopy, port)
+			submitResults = append(submitResults, submitResp)
+		}
+	}
+
+	// 统计提交结果
+	submitSuccessCount := 0
+	submitFailCount := 0
+	var submitDetails string
+
+	for idx, submitResp := range submitResults {
+		if submitResp.Code == 200 && submitResp.Result {
+			submitSuccessCount++
+			submitDetails += fmt.Sprintf("### ✅ 批次 %d\n", idx+1)
+			submitDetails += fmt.Sprintf("- **状态:** 提交成功\n")
+			submitDetails += fmt.Sprintf("- **信息:** %s\n\n", submitResp.Message)
+		} else {
+			submitFailCount++
+			submitDetails += fmt.Sprintf("### ❌ 批次 %d\n", idx+1)
+			submitDetails += fmt.Sprintf("- **状态:** 提交失败\n")
+			submitDetails += fmt.Sprintf("- **信息:** %s\n\n", submitResp.Message)
+		}
+	}
+
+	// 构建最终汇总
+	summary := fmt.Sprintf("# 📤 上传完成\n\n"+
+		"## 📊 统计信息\n"+
+		"- **扫描文件:** %d 个\n"+
+		"- **成功上传:** %d 个文件\n"+
+		"- **失败上传:** %d 个文件\n"+
+		"- **提交批次:** %d 批（每批最多%d个）\n"+
+		"- **成功批次:** %d 批\n"+
+		"- **失败批次:** %d 批\n\n",
+		len(files), successCount, failCount,
+		len(submitResults), batchSize,
+		submitSuccessCount, submitFailCount)
+
+	log.Println(summary)
+	return summary
+}
+
+// submitMaterialBatch 批量提交素材到素材中心
+func submitMaterialBatch(uploadResults []types.UploadResult, mediaList, categoryList []string, releaseCopy string, port int) types.SubmitMaterialResponse {
+	// 构建素材列表
+	var materialList []types.MaterialItem
+	for _, result := range uploadResults {
+		if result.Success {
+			// 根据文件扩展名判断素材类型
+			materialType := 1 // 默认图片
+			ext := filepath.Ext(result.FileName)
+			ext = filepath.Ext(ext) // 去除扩展名前的点
+			if ext == ".mp4" || ext == ".avi" || ext == ".mov" {
+				materialType = 2 // 视频
+			}
+
+			materialList = append(materialList, types.MaterialItem{
+				MaterialName: result.FileName,
+				MaterialSize: result.FileSize,
+				MaterialType: materialType,
+				URL:          result.URL,
+				LocalURL:     result.LocalURL,
+			})
+		}
+	}
+
+	if len(materialList) == 0 {
+		return types.SubmitMaterialResponse{
+			Code:    400,
+			Message: "没有可提交的素材",
+			Result:  false,
+		}
+	}
+
+	// 构建请求
+	submitURL := fmt.Sprintf("http://127.0.0.1:%d/api/submit-material-batch", port)
+	submitReq := map[string]interface{}{
+		"materialList": materialList,
+		"mediaList":    mediaList,
+		"categoryList": categoryList,
+		"releaseCopy":  releaseCopy,
 	}
 
 	submitData, err := json.Marshal(submitReq)
 	if err != nil {
 		log.Printf("序列化提交请求失败: %v", err)
-		return fmt.Sprintf("序列化提交请求失败: %v", err)
+		return types.SubmitMaterialResponse{
+			Code:    500,
+			Message: fmt.Sprintf("序列化提交请求失败: %v", err),
+			Result:  false,
+		}
 	}
 
 	submitResp, err := http.Post(submitURL, "application/json", bytes.NewBuffer(submitData))
 	if err != nil {
 		log.Printf("发送提交请求失败: %v", err)
-		return fmt.Sprintf("发送提交请求失败: %v", err)
+		return types.SubmitMaterialResponse{
+			Code:    500,
+			Message: fmt.Sprintf("发送提交请求失败: %v", err),
+			Result:  false,
+		}
 	}
 	defer submitResp.Body.Close()
 
 	var materialResp types.SubmitMaterialResponse
 	if err := json.NewDecoder(submitResp.Body).Decode(&materialResp); err != nil {
 		log.Printf("解析提交响应失败: %v", err)
-		return fmt.Sprintf("解析提交响应失败: %v", err)
-	}
-
-	// 构建结果信息
-	successCount := 0
-	failCount := 0
-	var resultDetails string
-
-	for _, result := range uploadResp.Data {
-		if result.Success {
-			successCount++
-			sizeStr := formatFileSize(result.FileSize)
-			resultDetails += fmt.Sprintf("### ✅ %s\n", result.FileName)
-			resultDetails += fmt.Sprintf("- **大小:** %s\n", sizeStr)
-			resultDetails += fmt.Sprintf("- **URL:** `%s`\n\n", result.URL)
-		} else {
-			failCount++
-			resultDetails += fmt.Sprintf("### ❌ %s\n", result.FileName)
-			resultDetails += fmt.Sprintf("- **错误:** %s\n\n", result.ErrorMsg)
+		return types.SubmitMaterialResponse{
+			Code:    500,
+			Message: fmt.Sprintf("解析提交响应失败: %v", err),
+			Result:  false,
 		}
 	}
 
-	// 添加提交结果
-	submitStatus := "❌ 提交失败"
-	submitIcon := "❌"
-	if materialResp.Code == 200 && materialResp.Result {
-		submitStatus = "✅ 提交成功"
-		submitIcon = "✅"
-	}
-
-	summary := fmt.Sprintf("# 📤 上传完成\n\n"+
-		"## 📊 统计信息\n"+
-		"- **成功上传:** %d 个文件\n"+
-		"- **失败上传:** %d 个文件\n"+
-		"- **素材提交:** %s %s\n"+
-		"- **提交信息:** %s\n\n"+
-		"---\n\n"+
-		"## 📝 详细信息\n\n%s",
-		successCount, failCount, submitIcon, submitStatus, materialResp.Message, resultDetails)
-
-	log.Println(summary)
-	return summary
-}
-
-// uploadFilesToJingcheng 上传文件到京橙平台（保留用于兼容）
-func uploadFilesToJingcheng(folderPath string, port int) string {
-	log.Printf("开始上传文件夹: %s", folderPath)
-
-	// 构建请求
-	reqBody := types.UploadRequest{
-		FolderPath: folderPath,
-	}
-
-	jsonData, err := json.Marshal(reqBody)
-	if err != nil {
-		log.Printf("序列化请求失败: %v", err)
-		return fmt.Sprintf("序列化请求失败: %v", err)
-	}
-
-	// 发送请求
-	url := fmt.Sprintf("http://127.0.0.1:%d/api/upload", port)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		log.Printf("发送上传请求失败: %v", err)
-		return fmt.Sprintf("发送上传请求失败: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// 解析响应
-	var uploadResp types.UploadResponse
-	if err := json.NewDecoder(resp.Body).Decode(&uploadResp); err != nil {
-		log.Printf("解析响应失败: %v", err)
-		return fmt.Sprintf("解析响应失败: %v", err)
-	}
-
-	// 统计结果并构建详细信息
-	successCount := 0
-	failCount := 0
-	var resultDetails string
-
-	for _, result := range uploadResp.Data {
-		if result.Success {
-			successCount++
-			log.Printf("上传成功: %s -> %s", result.FileName, result.URL)
-			// 格式化文件大小
-			sizeStr := formatFileSize(result.FileSize)
-			resultDetails += fmt.Sprintf("### ✅ %s\n", result.FileName)
-			resultDetails += fmt.Sprintf("- **大小:** %s\n", sizeStr)
-			resultDetails += fmt.Sprintf("- **URL:** `%s`\n\n", result.URL)
-		} else {
-			failCount++
-			log.Printf("上传失败: %s, 错误: %s", result.FileName, result.ErrorMsg)
-			resultDetails += fmt.Sprintf("### ❌ %s\n", result.FileName)
-			resultDetails += fmt.Sprintf("- **错误:** %s\n\n", result.ErrorMsg)
-		}
-	}
-
-	// 构建汇总信息
-	summary := fmt.Sprintf("# 📤 上传完成\n\n"+
-		"## 📊 统计信息\n"+
-		"- **成功上传:** %d 个文件\n"+
-		"- **失败上传:** %d 个文件\n\n"+
-		"---\n\n"+
-		"## 📝 详细信息\n\n%s",
-		successCount, failCount, resultDetails)
-
-	log.Println(summary)
-	return summary
+	return materialResp
 }
 
 // formatFileSize 格式化文件大小
