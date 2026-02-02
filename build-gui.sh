@@ -21,7 +21,7 @@ export GOOS=windows
 export GOARCH=amd64
 export CGO_ENABLED=1
 export CC=x86_64-w64-mingw32-gcc
-go build -ldflags="-s -w -H=windowsgui" -o "$RELEASE_PATH/filemanager-gui.exe" filemanager-gui.go
+go build -ldflags="-s -w" -o "$RELEASE_PATH/filemanager-gui.exe" filemanager-gui.go
 
 WINDOWS_GUI_SUCCESS=$?
 
@@ -74,7 +74,7 @@ cat > "$RELEASE_PATH/使用说明.txt" << EOF
 注意事项
 ==================================================
 - 关闭窗口即可退出程序
-- Windows 版本可能需要安装 WebView2 运行时
+- 使用 Fyne GUI 框架，无需额外安装组件
 - macOS 版本首次运行可能需要在"系统偏好设置 > 安全性与隐私"中允许运行
 EOF
 
