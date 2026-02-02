@@ -18,9 +18,15 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"
+)
+
+const (
+	IconFolder = "[DIR] "
+	IconFile   = "[FILE] "
 )
 
 //go:embed static/index.html
@@ -28,6 +34,9 @@ var staticFiles embed.FS
 
 //go:embed etc/filemanager-api.yaml
 var configContent []byte
+
+//go:embed fonts/NotoSansSC-Regular.ttf
+var chineseFont []byte
 
 var configFile = flag.String("f", "etc/filemanager-api.yaml", "the config file")
 
@@ -104,7 +113,15 @@ func main() {
 
 	// 创建 Fyne 应用
 	myApp := app.New()
+
+	// 设置自定义主题以支持中文字体（必须在创建任何 widget 之前）
+	log.Println("加载中文字体...")
+	customTheme := newChineseTheme()
+	myApp.Settings().SetTheme(customTheme)
+	log.Println("主题设置完成")
+
 	myWindow := myApp.NewWindow("文件管理器")
+	log.Println("创建窗口成功")
 	myWindow.Resize(fyne.NewSize(600, 400))
 
 	// 创建界面元素
@@ -124,11 +141,11 @@ func main() {
 			label := obj.(*widget.Label)
 			if id < len(fileInfos) {
 				fileInfo := fileInfos[id]
-				icon := "📄"
+				icon := IconFile
 				if fileInfo.IsDir {
-					icon = "📁"
+					icon = IconFolder
 				}
-				label.SetText(fmt.Sprintf("%s %s", icon, fileInfo.Name))
+				label.SetText(fmt.Sprintf("%s%s", icon, fileInfo.Name))
 			}
 		},
 	)
@@ -223,4 +240,23 @@ func scanFolder(folderPath string) []FileInfo {
 	}
 
 	return files
+}
+
+// 自定义主题以支持中文字体
+type chineseTheme struct {
+	fyne.Theme
+}
+
+// 创建使用嵌入中文字体的主题
+func newChineseTheme() fyne.Theme {
+	return &chineseTheme{
+		Theme: theme.DefaultTheme(),
+	}
+}
+
+// 重写 Font 方法，为所有文本样式返回中文字体
+func (ct *chineseTheme) Font(style fyne.TextStyle) fyne.Resource {
+	// NotoSansSC 是可变字体，支持粗细变化，可以处理所有样式
+	// 对于 Monospace 等宽字体，也使用中文字体以保证中文显示正常
+	return fyne.NewStaticResource("NotoSansSC-Regular.ttf", chineseFont)
 }
