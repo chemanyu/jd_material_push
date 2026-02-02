@@ -19,6 +19,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/api/upload",
 				Handler: UploadFilesHandler(serverCtx),
 			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/api/submit-material",
+				Handler: SubmitMaterialHandler(serverCtx),
+			},
 		},
 	)
 }

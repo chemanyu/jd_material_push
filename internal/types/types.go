@@ -61,3 +61,30 @@ type JingchengUploadResult struct {
 	LocalURL string `json:"localUrl"`
 	URL      string `json:"url"`
 }
+
+// SubmitMaterialRequest 提交素材请求
+type SubmitMaterialRequest struct {
+	FolderPath   string   `json:"folderPath"`   // 文件夹路径
+	MediaList    []string `json:"mediaList"`    // 投放媒体列表
+	CategoryList []string `json:"categoryList"` // 素材所属品类列表
+	ReleaseCopy  string   `json:"releaseCopy"`  // 投放文案
+}
+
+// MaterialItem 素材信息
+type MaterialItem struct {
+	MaterialName string `json:"materialName"` // 素材名称
+	MaterialSize int64  `json:"materialSize"` // 素材大小
+	MaterialType int    `json:"materialType"` // 素材类型
+	URL          string `json:"url"`          // URL
+	LocalURL     string `json:"localUrl"`     // 本地URL
+}
+
+// SubmitMaterialResponse 提交素材响应
+type SubmitMaterialResponse struct {
+	Code     int    `json:"code"`
+	Message  string `json:"message"`
+	Result   bool   `json:"result"`
+	HasNext  bool   `json:"hasNext"`
+	TotalNum int    `json:"totalNum"`
+	UUID     string `json:"uuid"`
+}
