@@ -72,7 +72,20 @@ func (m *Manager) GetCookie() (string, error) {
 
 // fetchCookie 从接口获取 Cookie
 func (m *Manager) fetchCookie() error {
-	resp, err := http.Get(CookieAPIURL)
+	// 创建请求
+	req, err := http.NewRequest(http.MethodGet, CookieAPIURL, nil)
+	if err != nil {
+		return fmt.Errorf("创建请求失败: %w", err)
+	}
+
+	// 设置 HTTP 基本认证
+	req.SetBasicAuth("guangyixin", "*~je,R#(anqAD")
+
+	// 发送请求
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("请求 Cookie 接口失败: %w", err)
 	}
