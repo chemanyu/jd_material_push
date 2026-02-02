@@ -582,7 +582,6 @@ func uploadAndSubmitMaterial(folderPath string, port int, mediaList, categoryLis
 			sizeStr := formatFileSize(result.FileSize)
 			resultDetails += fmt.Sprintf("### ✅ %s\n", result.FileName)
 			resultDetails += fmt.Sprintf("- **大小:** %s\n", sizeStr)
-			resultDetails += fmt.Sprintf("- **URL:** `%s`\n\n", result.URL)
 		} else {
 			failCount++
 			resultDetails += fmt.Sprintf("### ❌ %s\n", result.FileName)

@@ -227,7 +227,7 @@ func (l *UploadFilesLogic) uploadSingleFile(filePath, fileName, cookie string) t
 	result.Success = true
 	result.URL = jcResp.Result.URL
 	result.LocalURL = jcResp.Result.LocalURL
-	l.Infof("上传成功 %s: %s", fileName, result.URL)
+	l.Infof("上传成功 %s", fileName)
 
 	return result
 }
