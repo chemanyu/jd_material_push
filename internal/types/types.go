@@ -23,7 +23,8 @@ type GetFilesResponse struct {
 
 // UploadRequest 上传请求
 type UploadRequest struct {
-	FolderPath string `json:"folderPath"` // 文件夹路径
+	FolderPath  string `json:"folderPath"`           // 文件夹路径
+	AccountType string `json:"accountType,optional"` // 账号类型: xinyong(广义新用) / lowactive(复投-低活)，默认 xinyong
 }
 
 // UploadResult 单个文件上传结果
@@ -33,7 +34,8 @@ type UploadResult struct {
 	URL      string `json:"url"`      // 上传后的 URL
 	LocalURL string `json:"localUrl"` // 本地 URL
 	ErrorMsg string `json:"errorMsg"` // 错误信息
-	FileSize int64  `json:"fileSize"` // 文件大小
+	FileSize int64  `json:"fileSize"` // 文件大小（优先取上传接口返回值）
+	FileType int    `json:"fileType"` // 上传接口返回的文件类型，1=图片 2=视频，0=未返回
 }
 
 // UploadResponse 上传响应
@@ -91,8 +93,9 @@ type SubmitMaterialResponse struct {
 
 // SubmitMaterialBatchRequest 批量提交素材请求
 type SubmitMaterialBatchRequest struct {
-	MaterialList []MaterialItem `json:"materialList"` // 素材列表（最多20个）
-	MediaList    []string       `json:"mediaList"`    // 投放媒体列表
-	CategoryList []string       `json:"categoryList"` // 素材所属品类列表
-	ReleaseCopy  string         `json:"releaseCopy"`  // 投放文案
+	MaterialList []MaterialItem `json:"materialList"`         // 素材列表（最多20个）
+	MediaList    []string       `json:"mediaList"`            // 投放媒体列表
+	CategoryList []string       `json:"categoryList"`         // 素材所属品类列表
+	ReleaseCopy  string         `json:"releaseCopy"`          // 投放文案
+	AccountType  string         `json:"accountType,optional"` // 账号类型: xinyong(广义新用) / lowactive(复投-低活)，默认 xinyong
 }

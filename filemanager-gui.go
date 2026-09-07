@@ -11,8 +11,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"jd_material_push/internal/account"
 	"jd_material_push/internal/config"
 	"jd_material_push/internal/handler"
 	"jd_material_push/internal/svc"
@@ -135,38 +137,67 @@ func main() {
 	var selectedMedia []string
 	var selectedCategories []string
 
-	// 投放媒体选项
-	mediaOptions := map[string]string{
-		"巨量引擎":   "jlyq",
-		"巨量星图":   "jlxt",
-		"快手磁力智投": "ksclzt",
-		"快手磁力聚星": "kscljx",
-		"百度营销":   "bdyx",
-		"广点通":    "gdt",
-		"B站":     "bz",
-		"趣头条":    "qtt",
+	// 账号类型选项（决定使用哪个平台的 Cookie、素材中心业务空间和可选项）
+	var accountTypeLabels []string
+	accountTypeValues := map[string]string{}
+	for _, t := range account.Ordered() {
+		label := account.Name(t)
+		accountTypeLabels = append(accountTypeLabels, label)
+		accountTypeValues[label] = string(t)
+	}
+	selectedAccountType := accountTypeValues[accountTypeLabels[0]]
+
+	// 选中的媒体显示标签 - 使用多行富文本显示
+	selectedMediaLabel := widget.NewRichTextFromMarkdown("**未选择**")
+	selectedMediaLabel.Wrapping = fyne.TextWrapWord
+
+	// 选中的品类显示标签 - 使用多行富文本显示
+	selectedCategoryLabel := widget.NewRichTextFromMarkdown("**未选择**")
+	selectedCategoryLabel.Wrapping = fyne.TextWrapWord
+
+	// currentPlatform 返回当前账号类型对应的平台参数（可选项按平台区分）
+	currentPlatform := func() account.Platform {
+		return account.MustGet(account.Type(selectedAccountType))
 	}
 
-	// 素材所属品类选项（部分常用的）
-	categoryOptions := map[string]string{
-		"本地生活/旅游出行": "4938",
-		"家庭清洁/纸品":   "15901",
-		"鲜花/奢侈品":    "1672",
-		"数码":        "652",
-		"家用电器":      "737",
-		"食品饮料":      "1320",
-		"厨具":        "6196",
-		"美妆护肤":      "1316",
-		"手机通讯":      "9987",
-		"服饰内衣":      "1315",
-		"生活日用":      "1620",
-		"个人护理":      "16750",
-		"鞋靴":        "11729",
-		"电脑、办公":     "670",
-		"运动户外":      "1318",
-		"生鲜":        "12218",
-		"母婴":        "1319",
+	// refreshSelectedLabel 按平台可选项的顺序刷新已选项展示
+	refreshSelectedLabel := func(label *widget.RichText, options []account.Option, selected []string) {
+		if len(selected) == 0 {
+			label.ParseMarkdown("**未选择**")
+			return
+		}
+		mdText := fmt.Sprintf("**已选择 %d 项：**\n", len(selected))
+		i := 0
+		for _, opt := range options {
+			for _, sel := range selected {
+				if opt.Value == sel {
+					i++
+					mdText += fmt.Sprintf("%d. %s\n", i, opt.Label)
+					break
+				}
+			}
+		}
+		label.ParseMarkdown(mdText)
 	}
+
+	accountTypeRadio := widget.NewRadioGroup(accountTypeLabels, func(label string) {
+		if label == "" {
+			return
+		}
+		value := accountTypeValues[label]
+		if value == selectedAccountType {
+			return
+		}
+		selectedAccountType = value
+		// 各平台的媒体/品类枚举不同，切换后已选项失效，需要重新选择
+		selectedMedia = nil
+		selectedCategories = nil
+		selectedMediaLabel.ParseMarkdown("**未选择**")
+		selectedCategoryLabel.ParseMarkdown("**未选择**")
+		log.Printf("选择账号类型: %s (%s)，已清空投放媒体和素材品类选择", label, selectedAccountType)
+	})
+	accountTypeRadio.Horizontal = true
+	accountTypeRadio.SetSelected(accountTypeLabels[0])
 
 	// 投放文案输入框
 	releaseCopyEntry := widget.NewEntry()
@@ -177,33 +208,21 @@ func main() {
 	releaseCopyContainer := container.NewVBox(releaseCopyEntry)
 	releaseCopyContainer.Resize(fyne.NewSize(0, 60)) // 限制高度为60像素
 
-	// 选中的媒体显示标签 - 使用多行富文本显示
-	selectedMediaLabel := widget.NewRichTextFromMarkdown("**未选择**")
-	selectedMediaLabel.Wrapping = fyne.TextWrapWord
-
-	// 选中的品类显示标签 - 使用多行富文本显示
-	selectedCategoryLabel := widget.NewRichTextFromMarkdown("**未选择**")
-	selectedCategoryLabel.Wrapping = fyne.TextWrapWord
-
-	// 投放媒体选择对话框
-	selectMediaBtn := widget.NewButton("选择投放媒体", func() {
-		var checkBoxes []*widget.Check
+	// showOptionDialog 弹出多选对话框，可选项来自当前账号类型对应的平台
+	showOptionDialog := func(title, tip string, options []account.Option, selected []string, minHeight float32, onConfirm func([]string)) {
 		tempSelected := make(map[string]bool)
-
-		// 初始化已选中状态
-		for _, val := range selectedMedia {
+		for _, val := range selected {
 			tempSelected[val] = true
 		}
 
-		// 创建复选框 - 按照固定顺序显示
-		mediaOrder := []string{
-			"巨量引擎", "巨量星图", "快手磁力智投", "快手磁力聚星",
-			"百度营销", "广点通", "B站", "趣头条",
-		}
-		for _, label := range mediaOrder {
-			value := mediaOptions[label]
-			label := label
-			check := widget.NewCheck(label, func(checked bool) {
+		content := container.NewVBox(
+			widget.NewLabel(tip),
+			widget.NewSeparator(),
+		)
+		// 按平台可选项的顺序创建复选框
+		for _, opt := range options {
+			value := opt.Value
+			check := widget.NewCheck(opt.Label, func(checked bool) {
 				if checked {
 					tempSelected[value] = true
 				} else {
@@ -211,126 +230,48 @@ func main() {
 				}
 			})
 			check.Checked = tempSelected[value]
-			checkBoxes = append(checkBoxes, check)
-		}
-
-		content := container.NewVBox(
-			widget.NewLabel("请选择一个或多个投放媒体平台："),
-			widget.NewSeparator(),
-		)
-		for _, cb := range checkBoxes {
-			content.Add(cb)
+			content.Add(check)
 		}
 
 		// 创建带滚动的容器，设置最小尺寸
 		scrollContent := container.NewVScroll(content)
-		scrollContent.SetMinSize(fyne.NewSize(400, 300))
+		scrollContent.SetMinSize(fyne.NewSize(400, minHeight))
 
-		dialog.ShowCustomConfirm("选择投放媒体", "确定", "取消",
+		dialog.ShowCustomConfirm(title, "确定", "取消",
 			scrollContent,
 			func(confirmed bool) {
-				if confirmed {
-					selectedMedia = []string{}
-					for val := range tempSelected {
-						selectedMedia = append(selectedMedia, val)
-					}
-					// 更新显示标签 - 使用更清晰的格式
-					if len(selectedMedia) == 0 {
-						selectedMediaLabel.ParseMarkdown("**未选择**")
-					} else {
-						displayLabels := []string{}
-						for _, label := range mediaOrder {
-							value := mediaOptions[label]
-							for _, sel := range selectedMedia {
-								if value == sel {
-									displayLabels = append(displayLabels, label)
-									break
-								}
-							}
-						}
-						mdText := fmt.Sprintf("**已选择 %d 项：**\n", len(selectedMedia))
-						for i, label := range displayLabels {
-							mdText += fmt.Sprintf("%d. %s\n", i+1, label)
-						}
-						selectedMediaLabel.ParseMarkdown(mdText)
+				if !confirmed {
+					return
+				}
+				// 按平台可选项的顺序回填，保证提交顺序稳定
+				result := []string{}
+				for _, opt := range options {
+					if tempSelected[opt.Value] {
+						result = append(result, opt.Value)
 					}
 				}
+				onConfirm(result)
 			}, myWindow)
+	}
+
+	// 投放媒体选择对话框
+	selectMediaBtn := widget.NewButton("选择投放媒体", func() {
+		options := currentPlatform().MediaOptions
+		showOptionDialog("选择投放媒体", "请选择一个或多个投放媒体平台：", options, selectedMedia, 300,
+			func(result []string) {
+				selectedMedia = result
+				refreshSelectedLabel(selectedMediaLabel, options, selectedMedia)
+			})
 	})
 
 	// 素材品类选择对话框
 	selectCategoryBtn := widget.NewButton("选择素材品类", func() {
-		var checkBoxes []*widget.Check
-		tempSelected := make(map[string]bool)
-
-		// 初始化已选中状态
-		for _, val := range selectedCategories {
-			tempSelected[val] = true
-		}
-
-		// 创建复选框 - 按照固定顺序显示
-		categoryOrder := []string{
-			"本地生活/旅游出行", "家庭清洁/纸品", "鲜花/奢侈品", "数码",
-			"家用电器", "食品饮料", "厨具", "美妆护肤",
-			"手机通讯", "服饰内衣", "生活日用", "个人护理",
-			"鞋靴", "电脑、办公", "运动户外", "生鲜", "母婴",
-		}
-		for _, label := range categoryOrder {
-			value := categoryOptions[label]
-			label := label
-			check := widget.NewCheck(label, func(checked bool) {
-				if checked {
-					tempSelected[value] = true
-				} else {
-					delete(tempSelected, value)
-				}
+		options := currentPlatform().CategoryOptions
+		showOptionDialog("选择素材品类", "请选择一个或多个素材品类：", options, selectedCategories, 400,
+			func(result []string) {
+				selectedCategories = result
+				refreshSelectedLabel(selectedCategoryLabel, options, selectedCategories)
 			})
-			check.Checked = tempSelected[value]
-			checkBoxes = append(checkBoxes, check)
-		}
-
-		content := container.NewVBox(
-			widget.NewLabel("请选择一个或多个素材品类："),
-			widget.NewSeparator(),
-		)
-		for _, cb := range checkBoxes {
-			content.Add(cb)
-		}
-
-		// 创建带滚动的容器，设置最小尺寸
-		scrollContent := container.NewVScroll(content)
-		scrollContent.SetMinSize(fyne.NewSize(400, 400))
-
-		dialog.ShowCustomConfirm("选择素材品类", "确定", "取消",
-			scrollContent,
-			func(confirmed bool) {
-				if confirmed {
-					selectedCategories = []string{}
-					for val := range tempSelected {
-						selectedCategories = append(selectedCategories, val)
-					}
-					// 更新显示标签 - 使用更清晰的格式
-					if len(selectedCategories) == 0 {
-						selectedCategoryLabel.ParseMarkdown("**未选择**")
-					} else {
-						displayLabels := []string{}
-						for _, label := range categoryOrder {
-							value := categoryOptions[label]
-							for _, sel := range selectedCategories {
-								if value == sel {
-									displayLabels = append(displayLabels, label)
-									break
-								}
-							}
-						}
-						mdText := fmt.Sprintf("**已选择 %d 项：**\n", len(selectedCategories))
-						for i, label := range displayLabels {
-							mdText += fmt.Sprintf("%d. %s\n", i+1, label)
-						}
-						selectedCategoryLabel.ParseMarkdown(mdText)
-					}
-				}
-			}, myWindow)
 	})
 
 	// 文件列表
@@ -407,8 +348,12 @@ func main() {
 			dialog.ShowInformation("提示", "请输入投放文案", myWindow)
 			return
 		}
+		if selectedAccountType == "" {
+			dialog.ShowInformation("提示", "请选择账号类型", myWindow)
+			return
+		}
 
-		log.Printf("开始上传并提交素材，共 %d 个文件", len(fileInfos))
+		log.Printf("开始上传并提交素材，共 %d 个文件，账号类型: %s", len(fileInfos), selectedAccountType)
 
 		// 显示进度对话框
 		progressDialog := dialog.NewCustomWithoutButtons("上传中",
@@ -418,7 +363,7 @@ func main() {
 
 		// 在后台上传并提交
 		go func() {
-			result := uploadAndSubmitMaterial(selectedPath, port, selectedMedia, selectedCategories, releaseCopyEntry.Text)
+			result := uploadAndSubmitMaterial(selectedPath, port, selectedMedia, selectedCategories, releaseCopyEntry.Text, selectedAccountType)
 
 			// 关闭进度对话框并在主线程显示结果
 			progressDialog.Hide()
@@ -428,6 +373,9 @@ func main() {
 
 	// 布局
 	formContent := container.NewVBox(
+		widget.NewLabelWithStyle("账号类型:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		accountTypeRadio,
+		widget.NewSeparator(),
 		widget.NewLabelWithStyle("投放媒体:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		container.NewPadded(selectedMediaLabel),
 		selectMediaBtn,
@@ -522,8 +470,8 @@ func (ct *chineseTheme) Font(style fyne.TextStyle) fyne.Resource {
 }
 
 // uploadAndSubmitMaterial 上传文件并提交素材到京橙平台（批量上传+批量提交）
-func uploadAndSubmitMaterial(folderPath string, port int, mediaList, categoryList []string, releaseCopy string) string {
-	log.Printf("开始上传文件夹: %s", folderPath)
+func uploadAndSubmitMaterial(folderPath string, port int, mediaList, categoryList []string, releaseCopy, accountType string) string {
+	log.Printf("开始上传文件夹: %s, 账号类型: %s", folderPath, accountType)
 
 	// 第一步：扫描文件夹获取所有文件
 	fileInfos := scanFolder(folderPath)
@@ -547,7 +495,8 @@ func uploadAndSubmitMaterial(folderPath string, port int, mediaList, categoryLis
 
 	// 第二步：调用一次上传接口，后端会处理文件夹中的所有文件
 	reqBody := types.UploadRequest{
-		FolderPath: folderPath,
+		FolderPath:  folderPath,
+		AccountType: accountType,
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -606,7 +555,7 @@ func uploadAndSubmitMaterial(folderPath string, port int, mediaList, categoryLis
 			log.Printf("提交批次 %d: %d-%d/%d", i/batchSize+1, i+1, end, len(successResults))
 
 			// 提交这一批素材
-			submitResp := submitMaterialBatch(batch, mediaList, categoryList, releaseCopy, port)
+			submitResp := submitMaterialBatch(batch, mediaList, categoryList, releaseCopy, port, accountType)
 			submitResults = append(submitResults, submitResp)
 		}
 	}
@@ -647,18 +596,31 @@ func uploadAndSubmitMaterial(folderPath string, port int, mediaList, categoryLis
 	return summary
 }
 
+// videoExts 素材中心按视频（materialType=2）处理的扩展名
+var videoExts = map[string]bool{
+	".mp4": true, ".avi": true, ".mov": true,
+	".mkv": true, ".webm": true, ".flv": true,
+	".wmv": true, ".m4v": true, ".mpeg": true, ".mpg": true,
+}
+
+// materialTypeByExt 按扩展名判断素材类型，1=图片 2=视频
+func materialTypeByExt(fileName string) int {
+	if videoExts[strings.ToLower(filepath.Ext(fileName))] {
+		return 2
+	}
+	return 1
+}
+
 // submitMaterialBatch 批量提交素材到素材中心
-func submitMaterialBatch(uploadResults []types.UploadResult, mediaList, categoryList []string, releaseCopy string, port int) types.SubmitMaterialResponse {
+func submitMaterialBatch(uploadResults []types.UploadResult, mediaList, categoryList []string, releaseCopy string, port int, accountType string) types.SubmitMaterialResponse {
 	// 构建素材列表
 	var materialList []types.MaterialItem
 	for _, result := range uploadResults {
 		if result.Success {
-			// 根据文件扩展名判断素材类型
-			materialType := 1 // 默认图片
-			ext := filepath.Ext(result.FileName)
-			ext = filepath.Ext(ext) // 去除扩展名前的点
-			if ext == ".mp4" || ext == ".avi" || ext == ".mov" {
-				materialType = 2 // 视频
+			// 优先用上传接口返回的类型，没返回时才按扩展名兜底
+			materialType := result.FileType
+			if materialType == 0 {
+				materialType = materialTypeByExt(result.FileName)
 			}
 
 			materialList = append(materialList, types.MaterialItem{
@@ -686,6 +648,7 @@ func submitMaterialBatch(uploadResults []types.UploadResult, mediaList, category
 		"mediaList":    mediaList,
 		"categoryList": categoryList,
 		"releaseCopy":  releaseCopy,
+		"accountType":  accountType,
 	}
 
 	submitData, err := json.Marshal(submitReq)

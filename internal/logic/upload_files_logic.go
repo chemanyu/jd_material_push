@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"jd_material_push/internal/account"
 	"jd_material_push/internal/svc"
 	"jd_material_push/internal/types"
 
@@ -39,14 +40,17 @@ func (l *UploadFilesLogic) UploadFiles(req *types.UploadRequest) (resp *types.Up
 		Data:    []types.UploadResult{},
 	}
 
-	// 从内存中获取京橙平台的 Cookie
-	cookie, err := l.svcCtx.CookieManager.GetCookie()
+	// 从内存中获取京东平台的 Cookie（按账号类型区分：广义新用 / 复投-低活）
+	accountType := account.Parse(req.AccountType)
+	plat := account.MustGet(accountType)
+	cookie, err := l.svcCtx.CookieManager.GetCookie(accountType)
 	if err != nil {
-		l.Errorf("获取京橙平台 Cookie 失败: %v", err)
+		l.Errorf("获取 %s Cookie 失败: %v", plat.Name, err)
 		resp.Code = 500
-		resp.Message = fmt.Sprintf("获取京橙平台 Cookie 失败: %v", err)
+		resp.Message = fmt.Sprintf("获取 %s Cookie 失败: %v", plat.Name, err)
 		return resp, nil
 	}
+	l.Infof("本次上传使用账号类型: %s (systemCode=%s, businessCode=%s)", plat.Name, plat.SystemCode, plat.BusinessCode)
 
 	// 读取文件夹下的所有文件
 	files, err := os.ReadDir(req.FolderPath)
@@ -95,7 +99,7 @@ func (l *UploadFilesLogic) UploadFiles(req *types.UploadRequest) (resp *types.Up
 			defer func() { <-semaphore }()
 
 			fileName := filepath.Base(fp)
-			result := l.uploadSingleFile(fp, fileName, cookie)
+			result := l.uploadSingleFile(fp, fileName, cookie, plat)
 
 			// 安全地添加到结果列表
 			mu.Lock()
@@ -122,8 +126,8 @@ func countSuccessful(results []types.UploadResult) int {
 	return count
 }
 
-// uploadSingleFile 上传单个文件到京橙平台
-func (l *UploadFilesLogic) uploadSingleFile(filePath, fileName, cookie string) types.UploadResult {
+// uploadSingleFile 上传单个文件到京东平台
+func (l *UploadFilesLogic) uploadSingleFile(filePath, fileName, cookie string, plat account.Platform) types.UploadResult {
 	result := types.UploadResult{
 		FileName: fileName,
 		Success:  false,
@@ -152,8 +156,8 @@ func (l *UploadFilesLogic) uploadSingleFile(filePath, fileName, cookie string) t
 	writer := multipart.NewWriter(body)
 
 	// 添加表单字段
-	_ = writer.WriteField("systemCode", "jdOrange")
-	_ = writer.WriteField("businessCode", "伙伴计划--美数科技")
+	_ = writer.WriteField("systemCode", plat.SystemCode)
+	_ = writer.WriteField("businessCode", plat.BusinessCode)
 
 	// 添加文件
 	part, err := writer.CreateFormFile("file", fileName)
@@ -186,9 +190,19 @@ func (l *UploadFilesLogic) uploadSingleFile(filePath, fileName, cookie string) t
 		return result
 	}
 
-	// 设置请求头
+	// 设置请求头，与浏览器抓包保持一致
 	httpReq.Header.Set("Content-Type", writer.FormDataContentType())
 	httpReq.Header.Set("Cookie", cookie)
+	httpReq.Header.Set("Accept", "application/json, text/plain, */*")
+	httpReq.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
+	httpReq.Header.Set("User-Agent", account.UserAgent)
+	httpReq.Header.Set("Origin", plat.Origin)
+	if plat.Referer != "" {
+		httpReq.Header.Set("Referer", plat.Referer)
+	}
+	if plat.RefererPage != "" {
+		httpReq.Header.Set("x-referer-page", plat.RefererPage)
+	}
 
 	// 发送请求
 	client := &http.Client{}
@@ -227,7 +241,12 @@ func (l *UploadFilesLogic) uploadSingleFile(filePath, fileName, cookie string) t
 	result.Success = true
 	result.URL = jcResp.Result.URL
 	result.LocalURL = jcResp.Result.LocalURL
-	l.Infof("上传成功 %s", fileName)
+	result.FileType = jcResp.Result.FileType
+	// 上传接口返回的大小更权威，返回 0 时保留本地 Stat 的结果
+	if jcResp.Result.FileSize > 0 {
+		result.FileSize = jcResp.Result.FileSize
+	}
+	l.Infof("上传成功 %s (fileType=%d, fileSize=%d)", fileName, result.FileType, result.FileSize)
 
 	return result
 }

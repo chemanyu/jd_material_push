@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
+	"strconv"
+	"time"
 
+	"jd_material_push/internal/account"
 	"jd_material_push/internal/svc"
 	"jd_material_push/internal/types"
 
@@ -48,46 +50,13 @@ func (l *SubmitMaterialBatchLogic) SubmitMaterialBatch(req *types.SubmitMaterial
 		}, nil
 	}
 
-	// 构建 applyAttr
-	columnEnum := buildColumnEnum(req.MediaList, req.CategoryList)
-	applyAttr := map[string]interface{}{
-		"diyColumns": []map[string]interface{}{
-			{
-				"isRequired": true,
-				"columnType": 2,
-				"length":     30,
-				"isMultiple": 1,
-				"label":      "投放媒体",
-				"value":      req.MediaList,
-				"columnEnum": columnEnum["media"],
-				"key":        "media",
-			},
-			{
-				"isRequired": true,
-				"columnType": 2,
-				"length":     30,
-				"isMultiple": 1,
-				"label":      "素材所属品类",
-				"value":      req.CategoryList,
-				"columnEnum": columnEnum["category"],
-				"key":        "cate",
-			},
-			{
-				"isRequired": true,
-				"columnType": 3,
-				"length":     30,
-				"isMultiple": 2,
-				"label":      "投放文案",
-				"columnEnum": []map[string]string{{"value": "使用媒体平台推荐文案"}},
-				"key":        "release",
-				"value":      req.ReleaseCopy,
-			},
-		},
-	}
-	log.Println("media:", req.MediaList)
-	log.Println("category:", req.CategoryList)
+	// 解析账号类型，决定提交到哪个平台的素材中心
+	accountType := account.Parse(req.AccountType)
+	plat := account.MustGet(accountType)
 
-	applyAttrJSON, _ := json.Marshal(applyAttr)
+	l.Infof("投放媒体: %v, 素材品类: %v", req.MediaList, req.CategoryList)
+
+	applyAttrJSON, _ := json.Marshal(buildApplyAttr(plat, req.MediaList, req.CategoryList, req.ReleaseCopy))
 
 	// 构建请求参数
 	param := map[string]interface{}{
@@ -95,8 +64,8 @@ func (l *SubmitMaterialBatchLogic) SubmitMaterialBatch(req *types.SubmitMaterial
 		"param": map[string]interface{}{
 			"isApproval":   1,
 			"materialList": req.MaterialList,
-			"systemCode":   "jdOrange",
-			"businessCode": "伙伴计划--美数科技",
+			"systemCode":   plat.SystemCode,
+			"businessCode": plat.BusinessCode,
 			"applyAttr":    string(applyAttrJSON),
 		},
 		"loginType": "3",
@@ -104,31 +73,43 @@ func (l *SubmitMaterialBatchLogic) SubmitMaterialBatch(req *types.SubmitMaterial
 
 	bodyJSON, _ := json.Marshal(param)
 
-	// 获取 Cookie
-	cookie, err := l.svcCtx.CookieManager.GetCookie()
+	// 获取 Cookie（按账号类型区分：广义新用 / 复投-低活）
+	cookie, err := l.svcCtx.CookieManager.GetCookie(accountType)
 	if err != nil {
-		return nil, fmt.Errorf("获取 Cookie 失败: %w", err)
+		return nil, fmt.Errorf("获取 %s Cookie 失败: %w", plat.Name, err)
 	}
+	l.Infof("本次提交使用账号类型: %s (systemCode=%s, businessCode=%s)", plat.Name, plat.SystemCode, plat.BusinessCode)
 
-	// 构建表单数据
+	// 构建表单数据，参数全部放在 body 里（与浏览器抓包一致）
 	formData := url.Values{}
 	formData.Set("appid", "materialCenter")
 	formData.Set("functionId", "material_center_api")
-	formData.Set("_", "1770018106")
+	formData.Set("_", strconv.FormatInt(time.Now().UnixMilli(), 10))
 	formData.Set("loginType", "3")
 	formData.Set("body", string(bodyJSON))
 
 	// 创建请求
-	apiURL := "https://api.m.jd.com/?functionId=material_center_api&appid=materialCenter"
+	apiURL := "https://api.m.jd.com/"
 	httpReq, err := http.NewRequest("POST", apiURL, bytes.NewBufferString(formData.Encode()))
 	if err != nil {
 		return nil, err
 	}
 
-	// 设置请求头
+	// 设置请求头，与浏览器抓包保持一致（缺 UA / x-requested-with 等头会被风控拦截）
 	httpReq.Header.Set("Cookie", cookie)
-	httpReq.Header.Set("Origin", "https://jcheng.jd.com")
+	httpReq.Header.Set("Origin", plat.Origin)
+	if plat.Referer != "" {
+		httpReq.Header.Set("Referer", plat.Referer)
+	}
+	if plat.RefererPage != "" {
+		httpReq.Header.Set("x-referer-page", plat.RefererPage)
+	}
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	httpReq.Header.Set("Accept", "application/json, text/plain, */*")
+	httpReq.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
+	httpReq.Header.Set("User-Agent", account.UserAgent)
+	httpReq.Header.Set("x-requested-with", "XMLHttpRequest")
+	httpReq.Header.Set("x-rp-client", "h5_1.0.0")
 
 	// 发送请求
 	client := &http.Client{}
@@ -155,43 +136,52 @@ func (l *SubmitMaterialBatchLogic) SubmitMaterialBatch(req *types.SubmitMaterial
 	return &submitResp, nil
 }
 
-// buildColumnEnum 构建 columnEnum 数据
-func buildColumnEnum(mediaList, categoryList []string) map[string]interface{} {
-	// 投放媒体选项
-	mediaOptions := []map[string]string{
-		{"label": "巨量引擎", "value": "jlyq"},
-		{"label": "巨量星图", "value": "jlxt"},
-		{"label": "快手磁力智投", "value": "ksclzt"},
-		{"label": "快手磁力聚星", "value": "kscljx"},
-		{"label": "百度营销", "value": "bdyx"},
-		{"label": "广点通", "value": "gdt"},
-		{"label": "B站", "value": "bz"},
-		{"label": "趣头条", "value": "qtt"},
-	}
-
-	// 素材品类选项
-	categoryOptions := []map[string]string{
-		{"label": "本地生活/旅游出行", "value": "4938"},
-		{"label": "家庭清洁/纸品", "value": "15901"},
-		{"label": "鲜花/奢侈品", "value": "1672"},
-		{"label": "数码", "value": "652"},
-		{"label": "家用电器", "value": "737"},
-		{"label": "食品饮料", "value": "1320"},
-		{"label": "厨具", "value": "6196"},
-		{"label": "美妆护肤", "value": "1316"},
-		{"label": "手机通讯", "value": "9987"},
-		{"label": "服饰内衣", "value": "1315"},
-		{"label": "生活日用", "value": "1620"},
-		{"label": "个人护理", "value": "16750"},
-		{"label": "鞋靴", "value": "11729"},
-		{"label": "电脑、办公", "value": "670"},
-		{"label": "运动户外", "value": "1318"},
-		{"label": "生鲜", "value": "12218"},
-		{"label": "母婴", "value": "1319"},
-	}
-
+// buildApplyAttr 构建 applyAttr，columnEnum 必须是该平台素材中心的完整可选项
+func buildApplyAttr(plat account.Platform, mediaList, categoryList []string, releaseCopy string) map[string]interface{} {
 	return map[string]interface{}{
-		"media":    mediaOptions,
-		"category": categoryOptions,
+		"diyColumns": []map[string]interface{}{
+			{
+				"isRequired": true,
+				"columnType": 2,
+				"length":     30,
+				"isMultiple": 1,
+				"label":      "投放媒体",
+				"value":      mediaList,
+				"columnEnum": toColumnEnum(plat.MediaOptions),
+				"key":        "media",
+			},
+			{
+				"isRequired": true,
+				"columnType": 2,
+				"length":     30,
+				"isMultiple": 1,
+				"label":      "素材所属品类",
+				"value":      categoryList,
+				"columnEnum": toColumnEnum(plat.CategoryOptions),
+				"key":        "cate",
+			},
+			{
+				"isRequired": true,
+				"columnType": 3,
+				"length":     30,
+				"isMultiple": 2,
+				"label":      "投放文案",
+				"columnEnum": []map[string]string{{"value": "使用媒体平台推荐文案"}},
+				"key":        "release",
+				"value":      releaseCopy,
+			},
+		},
 	}
+}
+
+// toColumnEnum 把平台可选项转成素材中心 applyAttr 需要的 columnEnum 结构
+func toColumnEnum(options []account.Option) []map[string]string {
+	columnEnum := make([]map[string]string, 0, len(options))
+	for _, opt := range options {
+		columnEnum = append(columnEnum, map[string]string{
+			"label": opt.Label,
+			"value": opt.Value,
+		})
+	}
+	return columnEnum
 }

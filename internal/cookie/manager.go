@@ -8,11 +8,12 @@ import (
 	"sync"
 	"time"
 
+	"jd_material_push/internal/account"
+
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
 const (
-	CookieAPIURL     = "https://rta.zhltech.net/guangyixinmedia/report/jingcheng/cookie"
 	RefreshInterval  = 30 * time.Minute // 每30分钟刷新一次
 	InitialRetryWait = 10 * time.Second // 初始重试等待时间
 
@@ -27,29 +28,36 @@ type CookieResponse struct {
 	Data    string `json:"data"`
 }
 
-// Manager Cookie 管理器
-type Manager struct {
+// cookieEntry 单个账号类型的 Cookie 缓存
+type cookieEntry struct {
 	cookie     string
 	lastUpdate time.Time
-	mu         sync.RWMutex
-	stopCh     chan struct{}
+}
+
+// Manager Cookie 管理器，按账号类型分别维护 Cookie
+type Manager struct {
+	cookies map[account.Type]*cookieEntry
+	mu      sync.RWMutex
+	stopCh  chan struct{}
 }
 
 // NewManager 创建 Cookie 管理器
 func NewManager() *Manager {
 	m := &Manager{
-		stopCh: make(chan struct{}),
+		cookies: make(map[account.Type]*cookieEntry),
+		stopCh:  make(chan struct{}),
 	}
 
-	// 首次获取 Cookie
-	if err := m.fetchCookie(); err != nil {
-		logx.Errorf("初始化获取 Cookie 失败: %v，使用默认 Cookie", err)
-		// 使用默认 Cookie
-		m.mu.Lock()
-		m.cookie = DefaultCookie
-		m.lastUpdate = time.Now()
-		m.mu.Unlock()
-		logx.Infof("已设置默认 Cookie，长度: %d", len(DefaultCookie))
+	// 首次获取各账号类型的 Cookie
+	for _, t := range account.Ordered() {
+		if err := m.fetchCookie(t); err != nil {
+			logx.Errorf("初始化获取 %s Cookie 失败: %v", account.Name(t), err)
+			// 仅广义新用有内置的默认 Cookie 兜底
+			if t == account.Xinyong {
+				m.setCookie(t, DefaultCookie)
+				logx.Infof("已设置 %s 默认 Cookie，长度: %d", account.Name(t), len(DefaultCookie))
+			}
+		}
 	}
 
 	// 启动定时刷新
@@ -58,22 +66,52 @@ func NewManager() *Manager {
 	return m
 }
 
-// GetCookie 获取当前 Cookie
-func (m *Manager) GetCookie() (string, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if m.cookie == "" {
-		return "", fmt.Errorf("Cookie 未初始化")
+// GetCookie 获取指定账号类型的当前 Cookie
+func (m *Manager) GetCookie(t account.Type) (string, error) {
+	if _, ok := account.Get(t); !ok {
+		return "", fmt.Errorf("未知的账号类型: %s", t)
 	}
 
-	return m.cookie, nil
+	m.mu.RLock()
+	entry := m.cookies[t]
+	m.mu.RUnlock()
+
+	if entry == nil || entry.cookie == "" {
+		// 缓存为空时立即补一次，避免必须等到下个刷新周期
+		if err := m.fetchCookie(t); err != nil {
+			return "", fmt.Errorf("%s Cookie 未初始化: %w", account.Name(t), err)
+		}
+		m.mu.RLock()
+		entry = m.cookies[t]
+		m.mu.RUnlock()
+	}
+
+	if entry == nil || entry.cookie == "" {
+		return "", fmt.Errorf("%s Cookie 未初始化", account.Name(t))
+	}
+
+	return entry.cookie, nil
 }
 
-// fetchCookie 从接口获取 Cookie
-func (m *Manager) fetchCookie() error {
+// setCookie 更新指定账号类型的 Cookie 缓存
+func (m *Manager) setCookie(t account.Type, cookie string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cookies[t] = &cookieEntry{
+		cookie:     cookie,
+		lastUpdate: time.Now(),
+	}
+}
+
+// fetchCookie 从接口获取指定账号类型的 Cookie
+func (m *Manager) fetchCookie(t account.Type) error {
+	plat, ok := account.Get(t)
+	if !ok {
+		return fmt.Errorf("未知的账号类型: %s", t)
+	}
+
 	// 创建请求
-	req, err := http.NewRequest(http.MethodGet, CookieAPIURL, nil)
+	req, err := http.NewRequest(http.MethodGet, plat.CookieURL, nil)
 	if err != nil {
 		return fmt.Errorf("创建请求失败: %w", err)
 	}
@@ -110,41 +148,46 @@ func (m *Manager) fetchCookie() error {
 	}
 
 	// 更新 Cookie
-	m.mu.Lock()
-	m.cookie = cookieResp.Data
-	m.lastUpdate = time.Now()
-	m.mu.Unlock()
+	m.setCookie(t, cookieResp.Data)
 
-	logx.Infof("成功获取 Cookie，长度: %d", len(cookieResp.Data))
+	logx.Infof("成功获取 %s Cookie，长度: %d", account.Name(t), len(cookieResp.Data))
 	return nil
 }
 
-// autoRefresh 自动刷新 Cookie
+// autoRefresh 自动刷新所有账号类型的 Cookie
 func (m *Manager) autoRefresh() {
 	ticker := time.NewTicker(RefreshInterval)
 	defer ticker.Stop()
 
-	retryWait := InitialRetryWait
+	types := account.Ordered()
+	retryWaits := make(map[account.Type]time.Duration, len(types))
+	for _, t := range types {
+		retryWaits[t] = InitialRetryWait
+	}
 
 	for {
 		select {
 		case <-ticker.C:
-			if err := m.fetchCookie(); err != nil {
-				logx.Errorf("刷新 Cookie 失败: %v，将在 %v 后重试", err, retryWait)
-				// 失败后快速重试
-				time.AfterFunc(retryWait, func() {
-					if err := m.fetchCookie(); err != nil {
-						logx.Errorf("重试获取 Cookie 失败: %v", err)
+			for _, t := range types {
+				retryWait := retryWaits[t]
+				if err := m.fetchCookie(t); err != nil {
+					logx.Errorf("刷新 %s Cookie 失败: %v，将在 %v 后重试", account.Name(t), err, retryWait)
+					// 失败后快速重试
+					time.AfterFunc(retryWait, func() {
+						if err := m.fetchCookie(t); err != nil {
+							logx.Errorf("重试获取 %s Cookie 失败: %v", account.Name(t), err)
+						}
+					})
+					// 指数退避，最多等待 5 分钟
+					retryWait *= 2
+					if retryWait > 5*time.Minute {
+						retryWait = 5 * time.Minute
 					}
-				})
-				// 指数退避，最多等待 5 分钟
-				retryWait *= 2
-				if retryWait > 5*time.Minute {
-					retryWait = 5 * time.Minute
+					retryWaits[t] = retryWait
+				} else {
+					// 成功后重置重试等待时间
+					retryWaits[t] = InitialRetryWait
 				}
-			} else {
-				// 成功后重置重试等待时间
-				retryWait = InitialRetryWait
 			}
 		case <-m.stopCh:
 			logx.Info("Cookie 管理器已停止")
@@ -158,9 +201,12 @@ func (m *Manager) Stop() {
 	close(m.stopCh)
 }
 
-// GetLastUpdateTime 获取上次更新时间
-func (m *Manager) GetLastUpdateTime() time.Time {
+// GetLastUpdateTime 获取指定账号类型上次更新时间
+func (m *Manager) GetLastUpdateTime(t account.Type) time.Time {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.lastUpdate
+	if entry := m.cookies[t]; entry != nil {
+		return entry.lastUpdate
+	}
+	return time.Time{}
 }
